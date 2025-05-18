@@ -5,3 +5,10 @@ def save_transcribed(db, text):
 	cursor = db.cursor()
 	cursor.execute(sql)
 	db.commit()
+
+def fetch_anamnesis(db):
+	sql = f"SELECT text from Temp;"
+	cursor = db.cursor()
+	cursor.execute(sql)
+	res = cursor.fetchall()
+	return res

@@ -1,15 +1,14 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, request, Response
 import io
 import json
 import time
 import mysql.connector
 import os
-from dbm import save_transcribed
+from dbm import save_transcribed, fetch_anamnesis
 from dotenv import load_dotenv, dotenv_values 
 import whisper
 import tempfile
-from flask_cors import CORS
-
+from flask_cors import CORS, cross_origin
 load_dotenv() 
 get = os.getenv
 
@@ -31,10 +30,22 @@ try:
 except Exception as e:
     print("[!] Failed to connect to the database. Quitting...")
     exit(-1)
-    
 
 app = Flask(__name__)
 CORS(app)
+
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        res = Response()
+        res.headers['X-Content-Type-Options'] = '*'
+        return res
+
+@app.route('/anamnesis', methods=["GET"])
+@cross_origin()
+def get_anamnesis():
+    res = fetch_anamnesis(database)
+    return jsonify({"anamnesis": res}), 200
 
 @app.route('/transcribe', methods=["POST"])
 def transcribe_audio():
@@ -50,12 +61,18 @@ def transcribe_audio():
         model = whisper.load_model('base')
         result = model.transcribe(temp_path, language='en')
         transcription = result['text']
-        save_transcribed(database, transcription)
+        print(transcription)
+        #save_transcribed(database, transcription)
+
+    except Exception as e:
+        print(e)
 
     finally:
         os.remove(temp_path)  
 
     return jsonify({"transribtion": transcription}), 200
 
+
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=True)
