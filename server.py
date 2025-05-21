@@ -1,4 +1,9 @@
 from flask import Flask, request, jsonify, request, Response
+import jwt
+from datetime import datetime, timedelta
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+import wave
 import io
 import json
 import time
@@ -11,6 +16,8 @@ import tempfile
 from flask_cors import CORS, cross_origin
 load_dotenv() 
 get = os.getenv
+
+SECRET_KEY = os.getenv("JWT_SECRET", "fallback-dev-secret")
 
 HOST = get("MYSQL_HOST")
 USER = get("MYSQL_USER")
@@ -47,6 +54,58 @@ def get_anamnesis():
     res = fetch_anamnesis(database)
     return jsonify({"anamnesis": res}), 200
 
+@app.route('/verify-token', methods=['POST'])
+def verify_token():
+    print("Received request!")
+    data = request.get_json()
+    token = data.get("idToken")
+
+    if not token:
+        return jsonify({"error": "Missing idToken"}), 400
+
+    try:
+        idinfo = id_token.verify_oauth2_token(token, google_requests.Request())
+        email = idinfo["email"]
+        name = idinfo["name"]
+
+        cursor = database.cursor(dictionary=True)
+
+        cursor.execute("SELECT * FROM Doctor WHERE email = %s", (email,))
+        doctor = cursor.fetchone()
+        print(f"[LOGIN ATTEMPT] Email: {email}, Name: {name}")
+        if doctor:
+            role = "doctor"
+        else:
+            cursor.execute("SELECT * FROM Personel WHERE email = %s", (email,))
+            personel = cursor.fetchone()
+
+            if personel:
+                role = "personel"
+            else:
+                return jsonify({"error": "User not registered as Doctor or Personel"}), 403
+
+
+        payload = {
+            "sub": idinfo["sub"],
+            "email": idinfo["email"],
+            "name": idinfo["name"],
+            "role": role,
+            "exp": datetime.utcnow() + timedelta(hours=2)
+        }
+
+        jwt_token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+
+        return jsonify({
+            "message": "Token is valid",
+            "jwt": jwt_token,
+            "email": idinfo["email"],
+            "name": idinfo["name"],
+	        "role": role
+        }), 200
+
+    except ValueError as e:
+        return jsonify({"error": "Invalid token", "details": str(e)}), 401
+    
 @app.route('/transcribe', methods=["POST"])
 def transcribe_audio():
     if 'audio_file' not in request.files:
