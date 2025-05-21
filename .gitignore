@@ -1,3 +1,4 @@
 .env
+db-admin.py
 vosk-model-en-us-0.22/
 __pycache__/
