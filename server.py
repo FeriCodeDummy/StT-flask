@@ -56,6 +56,8 @@ def get_anamnesis():
 
 @app.route('/verify-token', methods=['POST'])
 def verify_token():
+    start = time.time()
+    print(f"[{time.time()}] /verify-token hit", flush=True)
     print("Received request!")
     data = request.get_json()
     token = data.get("idToken")
@@ -94,6 +96,7 @@ def verify_token():
         }
 
         jwt_token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+        print(f"/verify-token completed in {time.time() - start:.2f}s", flush=True)  # ✅ ADD HERE
 
         return jsonify({
             "message": "Token is valid",
@@ -104,6 +107,7 @@ def verify_token():
         }), 200
 
     except ValueError as e:
+        print(f"[!] Token verification failed: {e}", flush=True)
         return jsonify({"error": "Invalid token", "details": str(e)}), 401
     
 @app.route('/transcribe', methods=["POST"])
@@ -134,4 +138,4 @@ def transcribe_audio():
 
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
