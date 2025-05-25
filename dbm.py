@@ -1,6 +1,6 @@
 import os
 from gdpr_auth import generate_key, decrypt_text, decrypt_dek, encrypt_text
-
+from hashlib import sha256 
 def save_transcribed(db, text):
 	sql = f"INSERT INTO temp (`idTemp`, `transcription`) VALUES (NULL, \"{text}\")"
 	cursor = db.cursor()
@@ -108,3 +108,23 @@ def fetch_all_patients(db):
 	cursor.execute(sql)
 	res = cursor.fetchall()
 	return res
+
+def fetch_pid(db, hashed): #or ids, to be discussed
+	sql = "SELECT idPatient, fk_doctor, fk_hospital, enc_key FROM Patient"
+	cursor = db.cursor()
+	cursor.execute(sql)
+	res = cursor.fetchall()
+	pid = -1
+	hid = -1
+	did = -1
+	enc = ''
+	for item in res:
+		h = sha256(item[0].encode('utf-8')).hexdigest()
+		if hashed == h:
+			pid = item[0]
+			did = item[1]
+			hid = item[2]
+			enc = item[3]
+			break
+
+	return [pid, did, hid, enc]

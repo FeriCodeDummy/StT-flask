@@ -9,11 +9,12 @@ import json
 import time
 import mysql.connector
 import os
-from dbm import save_transcribed, fetch_anamnesis
+from dbm import save_transcribed, fetch_anamnesis, save_anamnesis, fetch_pid
 from dotenv import load_dotenv, dotenv_values 
 import whisper
 import tempfile
 from flask_cors import CORS, cross_origin
+from gdpr_auth import generate_key, encrypt_text, encrypt_dek_with_rsa
 load_dotenv() 
 get = os.getenv
 
@@ -26,116 +27,140 @@ PORT = int(get("MYSQL_PORT"))
 
 print("[*] Connecting to MySQL database ...")
 try:
-    database = mysql.connector.connect(
-          host=HOST,
-          user=USER,
-          password=PSWD,
-          database="mediphone",
-          port=PORT
-    )
-    print("[+] Connection successful")
+	database = mysql.connector.connect(
+		  host=HOST,
+		  user=USER,
+		  password=PSWD,
+		  database="mediphone",
+		  port=PORT
+	)
+	print("[+] Connection successful")
 except Exception as e:
-    print("[!] Failed to connect to the database. Quitting...")
-    exit(-1)
+	print("[!] Failed to connect to the database. Quitting...")
+	exit(-1)
 
 app = Flask(__name__)
 CORS(app)
 
 @app.before_request
 def handle_preflight():
-    if request.method == "OPTIONS":
-        res = Response()
-        res.headers['X-Content-Type-Options'] = '*'
-        return res
+	if request.method == "OPTIONS":
+		res = Response()
+		res.headers['X-Content-Type-Options'] = '*'
+		return res
 
 @app.route('/anamnesis', methods=["GET"])
 @cross_origin()
 def get_anamnesis():
-    res = fetch_anamnesis(database)
-    return jsonify({"anamnesis": res}), 200
+	res = fetch_anamnesis(database)
+	return jsonify({"anamnesis": res}), 200
 
 @app.route('/verify-token', methods=['POST'])
 def verify_token():
-    start = time.time()
-    print(f"[{time.time()}] /verify-token hit", flush=True)
-    print("Received request!")
-    data = request.get_json()
-    token = data.get("idToken")
+	start = time.time()
+	print(f"[{time.time()}] /verify-token hit", flush=True)
+	print("Received request!")
+	data = request.get_json()
+	token = data.get("idToken")
 
-    if not token:
-        return jsonify({"error": "Missing idToken"}), 400
+	if not token:
+		return jsonify({"error": "Missing idToken"}), 400
 
-    try:
-        idinfo = id_token.verify_oauth2_token(token, google_requests.Request())
-        email = idinfo["email"]
-        name = idinfo["name"]
+	try:
+		idinfo = id_token.verify_oauth2_token(token, google_requests.Request())
+		email = idinfo["email"]
+		name = idinfo["name"]
 
-        cursor = database.cursor(dictionary=True)
+		cursor = database.cursor(dictionary=True)
 
-        cursor.execute("SELECT * FROM Doctor WHERE email = %s", (email,))
-        doctor = cursor.fetchone()
-        print(f"[LOGIN ATTEMPT] Email: {email}, Name: {name}")
-        if doctor:
-            role = "doctor"
-        else:
-            cursor.execute("SELECT * FROM Personel WHERE email = %s", (email,))
-            personel = cursor.fetchone()
+		cursor.execute("SELECT * FROM Doctor WHERE email = %s", (email,))
+		doctor = cursor.fetchone()
+		print(f"[LOGIN ATTEMPT] Email: {email}, Name: {name}")
+		if doctor:
+			role = "doctor"
+		else:
+			cursor.execute("SELECT * FROM Personel WHERE email = %s", (email,))
+			personel = cursor.fetchone()
 
-            if personel:
-                role = "personel"
-            else:
-                return jsonify({"error": "User not registered as Doctor or Personel"}), 403
+			if personel:
+				role = "personel"
+			else:
+				return jsonify({"error": "User not registered as Doctor or Personel"}), 403
 
 
-        payload = {
-            "sub": idinfo["sub"],
-            "email": idinfo["email"],
-            "name": idinfo["name"],
-            "role": role,
-            "exp": datetime.utcnow() + timedelta(hours=2)
-        }
+		payload = {
+			"sub": idinfo["sub"],
+			"email": idinfo["email"],
+			"name": idinfo["name"],
+			"role": role,
+			"exp": datetime.utcnow() + timedelta(hours=2)
+		}
 
-        jwt_token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
-        print(f"/verify-token completed in {time.time() - start:.2f}s", flush=True)  # ✅ ADD HERE
+		jwt_token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+		print(f"/verify-token completed in {time.time() - start:.2f}s", flush=True)  # ✅ ADD HERE
 
-        return jsonify({
-            "message": "Token is valid",
-            "jwt": jwt_token,
-            "email": idinfo["email"],
-            "name": idinfo["name"],
-	        "role": role
-        }), 200
+		return jsonify({
+			"message": "Token is valid",
+			"jwt": jwt_token,
+			"email": idinfo["email"],
+			"name": idinfo["name"],
+			"role": role
+		}), 200
 
-    except ValueError as e:
-        print(f"[!] Token verification failed: {e}", flush=True)
-        return jsonify({"error": "Invalid token", "details": str(e)}), 401
-    
+	except ValueError as e:
+		print(f"[!] Token verification failed: {e}", flush=True)
+		return jsonify({"error": "Invalid token", "details": str(e)}), 401
+	
 @app.route('/transcribe', methods=["POST"])
 def transcribe_audio():
-    if 'audio_file' not in request.files:
-        return jsonify({"error": "Missing 'audio_file'"}), 400
-    uploaded_file = request.files['audio_file']
+	if 'title' not in request.body:
+		return jsonify({"error": "Mising anamnesis title"}), 400
+	
+	if 'id_' not in request.body:
+		return jsonify({"error": "Missing patient key"}), 400
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp:
-        uploaded_file.save(temp.name)
-        temp_path = temp.name
+	pid, did, hid, enc_key = fetch_pid(database, request.body["id_"])
+	if pid == -1:
+		return jsonfiy({"error": "Patient id is invalid"}), 400
 
-    try:
-        model = whisper.load_model('base')
-        result = model.transcribe(temp_path, language='en')
-        transcription = result['text']
-        print(transcription)
-        #save_transcribed(database, transcription)
+	if 'audio_file' not in request.files:
+		return jsonify({"error": "Missing 'audio_file'"}), 400
+	uploaded_file = request.files['audio_file']
 
-    except Exception as e:
-        print(e)
+	with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp:
+		uploaded_file.save(temp.name)
+		temp_path = temp.name
 
-    finally:
-        os.remove(temp_path)  
+	try:
+		model = whisper.load_model('base')
+		result = model.transcribe(temp_path, language='en')
+		transcription = result['text']
+		# TODO make a funciton validate_text to convert trasncription into proper anamnesis via gpt
+		#text = validate_text(transcription)
+		text = transcription
+		save_anamnesis(database, text, request.body["title"], pid, did, hid, enc_key)
 
-    return jsonify({"transribtion": transcription}), 200
+	except Exception as e:
+		print(e)
+		return
+	finally:
+		os.remove(temp_path)  
+
+	return jsonify({"transription": transcription}), 200
 
 
+@app.route("/test-rsa", methods=["POST"])
+def test_rsa():
+	data = request.get_json()
+	text = "Yeeeeeeeeeet"
+	key = generate_key()
+	enc_key = encrypt_dek_with_rsa(key)
+	text_encrypted = encrypt_text(text, key)
+
+	return jsonfigy({
+		"encrypted_key": enc_key,
+		"encrypted_text": text_encrypted
+	}), 200;
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
+	app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)

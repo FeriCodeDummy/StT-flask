@@ -3,7 +3,8 @@ import base64
 import binascii
 from dotenv import load_dotenv
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import serialization, hashes
 load_dotenv() 
 get = os.getenv
 
@@ -43,6 +44,30 @@ def decrypt_text(encrypted_b64: str, dek: bytes) -> str:
     aesgcm = AESGCM(dek)
     plaintext = aesgcm.decrypt(nonce, ciphertext, None)
     return plaintext.decode()
+
+def encrypt_dek_with_rsa(dek: bytes, public_key_pem: str):
+    public_key = serialization.load_pem_public_key(public_key_pem.encode())
+    encrypted_dek = public_key.encrypt(
+        dek,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    return base64.b64encode(encrypted_dek).decode()
+
+
+def encrypt_key_rsa(patient_key, doctor_key, public_key, text):
+    dek = decrypt_dek(patient_key)
+    plaintext = decrypt_text(text, dek)
+    dek_d = decrypt_dek(doctor_key)    
+    secure = encrypt_text(dek_d)
+    encrypted_key = encrypt_dek_with_rsa(dek_d, public_key)
+    return secure_
+
+
+
 
 
 
