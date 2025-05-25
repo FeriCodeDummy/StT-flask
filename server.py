@@ -153,11 +153,11 @@ def transcribe_audio():
 def test_rsa():
 	data = request.get_json()
 	text = "Yeeeeeeeeeet"
-	key = generate_key()
+	key = decrypt_key(generate_key())
 	enc_key = encrypt_dek_with_rsa(key)
 	text_encrypted = encrypt_text(text, key)
 
-	return jsonfigy({
+	return jsonfiy({
 		"encrypted_key": enc_key,
 		"encrypted_text": text_encrypted
 	}), 200;
