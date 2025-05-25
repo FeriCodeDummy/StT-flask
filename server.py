@@ -14,7 +14,7 @@ from dotenv import load_dotenv, dotenv_values
 import whisper
 import tempfile
 from flask_cors import CORS, cross_origin
-from gdpr_auth import generate_key, encrypt_text, encrypt_dek_with_rsa
+from gdpr_auth import generate_key, encrypt_text, encrypt_dek_with_rsa, decrypt_dek
 load_dotenv() 
 get = os.getenv
 
@@ -121,7 +121,7 @@ def transcribe_audio():
 
 	pid, did, hid, enc_key = fetch_pid(database, request.body["id_"])
 	if pid == -1:
-		return jsonfiy({"error": "Patient id is invalid"}), 400
+		return jsonify({"error": "Patient id is invalid"}), 400
 
 	if 'audio_file' not in request.files:
 		return jsonify({"error": "Missing 'audio_file'"}), 400
@@ -151,13 +151,15 @@ def transcribe_audio():
 
 @app.route("/test-rsa", methods=["POST"])
 def test_rsa():
+
 	data = request.get_json()
+	pub_key = data.get("public_key")
 	text = "Yeeeeeeeeeet"
-	key = decrypt_key(generate_key())
-	enc_key = encrypt_dek_with_rsa(key)
+	key = decrypt_dek(generate_key())
+	enc_key = encrypt_dek_with_rsa(key, pub_key)
 	text_encrypted = encrypt_text(text, key)
 
-	return jsonfiy({
+	return jsonify({
 		"encrypted_key": enc_key,
 		"encrypted_text": text_encrypted
 	}), 200;
