@@ -1,3 +1,4 @@
 .env
 vosk-model-en-us-0.22/
 __pycache__/
+private_key.pem

@@ -14,7 +14,7 @@ from dotenv import load_dotenv, dotenv_values
 import whisper
 import tempfile
 from flask_cors import CORS, cross_origin
-from gdpr_auth import generate_key, encrypt_text, encrypt_dek_with_rsa, decrypt_dek
+from gdpr_auth import generate_key, encrypt_text, decrypt_text, encrypt_dek_with_rsa, decrypt_dek
 load_dotenv() 
 get = os.getenv
 
@@ -24,6 +24,7 @@ HOST = get("MYSQL_HOST")
 USER = get("MYSQL_USER")
 PSWD = get("MYSQL_PASSWORD")
 PORT = int(get("MYSQL_PORT"))
+AES_KEY = get("MASTER_AES_KEY")
 
 print("[*] Connecting to MySQL database ...")
 try:
@@ -48,6 +49,92 @@ def handle_preflight():
 		res = Response()
 		res.headers['X-Content-Type-Options'] = '*'
 		return res
+
+# @app.route("/test-rsa", methods=["POST"])
+# def test_rsa():
+
+# 	data = request.get_json()
+# 	print(data)
+	
+# 	pub_key = data.get("public_key")
+# 	text = "Yeeeeeeeeeet"
+# 	key = os.urandom(32)
+# 	enc_key = encrypt_dek_with_rsa(key, pub_key)
+# 	text_encrypted = encrypt_text(text, key)
+
+# 	print(enc_key)
+# 	return jsonify({
+# 		"encrypted_key": enc_key,
+# 		"encrypted_text": text_encrypted
+# 	}), 200
+
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+import base64, os
+from cryptography.hazmat.primitives.serialization import load_pem_public_key, load_pem_private_key
+from cryptography.hazmat.primitives.asymmetric import dsa, rsa
+
+def decrypt_dek_with_rsa(encrypted_dek_b64: str, private_key_pem: str) -> bytes:
+    encrypted_dek = base64.b64decode(encrypted_dek_b64)
+
+    private_key = serialization.load_pem_private_key(
+        private_key_pem.encode(),
+        password=None  # or passphrase bytes if your private key is encrypted
+    )
+
+    decrypted_dek = private_key.decrypt(
+        encrypted_dek,
+        padding.PKCS1v15()
+    )
+
+    return decrypted_dek
+
+@app.route('/test-rsa', methods=['POST'])
+def test_rsa():
+    data = request.get_json()
+    public_key_pem = data['public_key']
+    aes_key = os.urandom(32)  # 256-bit AES key
+
+    print(aes_key.hex())
+    encrypted_key = encrypt_dek_with_rsa(aes_key, public_key_pem)
+
+    encrypted_text = encrypt_text("Some anamnesis text:", aes_key)
+
+    return jsonify({
+        'encrypted_key': encrypted_key,
+        'encrypted_text': encrypted_text 
+    })
+
+@app.route("/test-rsa-update", methods=["POST"])
+def test_rsa_update():
+    data = request.get_json()
+    enc_key = data.get("encrypted_key")
+    enc_text = data.get("encrypted_text")
+    pid = data.get("patientid")
+
+    # 1. Load your RSA private key from PEM 
+		
+    with open("private_key.pem", "rb") as f:
+        # print(f.read().hex())
+        private_key = serialization.load_pem_private_key(
+			f.read(),
+			password=None
+		)
+		
+    # print(private_key)
+
+    encrypted_key_bytes = base64.b64decode(enc_key)
+
+    aes_key = private_key.decrypt(
+        encrypted_key_bytes,
+        padding.PKCS1v15()
+    ).decode()
+    aes_key = base64.b64decode(aes_key)
+    # print(aes_key.hex())
+    # print(len(aes_key))
+    # print(decrypt_text(enc_text, aes_key))
+
+    return jsonify({"status": "Success."}), 200
 
 @app.route('/anamnesis', methods=["GET"])
 @cross_origin()
@@ -147,22 +234,6 @@ def transcribe_audio():
 		os.remove(temp_path)  
 
 	return jsonify({"transription": transcription}), 200
-
-
-@app.route("/test-rsa", methods=["POST"])
-def test_rsa():
-
-	data = request.get_json()
-	pub_key = data.get("public_key")
-	text = "Yeeeeeeeeeet"
-	key = decrypt_dek(generate_key())
-	enc_key = encrypt_dek_with_rsa(key, pub_key)
-	text_encrypted = encrypt_text(text, key)
-
-	return jsonify({
-		"encrypted_key": enc_key,
-		"encrypted_text": text_encrypted
-	}), 200;
 
 if __name__ == '__main__':
 	app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
