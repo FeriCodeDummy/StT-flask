@@ -21,6 +21,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 import base64, os
 from cryptography.hazmat.primitives.serialization import load_pem_public_key, load_pem_private_key
 from cryptography.hazmat.primitives.asymmetric import dsa, rsa
+from openai import OpenAI
 load_dotenv() 
 get = os.getenv
 
