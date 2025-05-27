@@ -14,7 +14,13 @@ from dotenv import load_dotenv, dotenv_values
 import whisper
 import tempfile
 from flask_cors import CORS, cross_origin
+from medic import to_medical_format
 from gdpr_auth import generate_key, encrypt_text, decrypt_text, encrypt_dek_with_rsa, decrypt_dek
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+import base64, os
+from cryptography.hazmat.primitives.serialization import load_pem_public_key, load_pem_private_key
+from cryptography.hazmat.primitives.asymmetric import dsa, rsa
 load_dotenv() 
 get = os.getenv
 
@@ -25,6 +31,8 @@ USER = get("MYSQL_USER")
 PSWD = get("MYSQL_PASSWORD")
 PORT = int(get("MYSQL_PORT"))
 AES_KEY = get("MASTER_AES_KEY")
+OPENAI_API_KEY = get("OPENAI_API_KEY")
+
 
 print("[*] Connecting to MySQL database ...")
 try:
@@ -39,6 +47,8 @@ try:
 except Exception as e:
 	print("[!] Failed to connect to the database. Quitting...")
 	exit(-1)
+
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 app = Flask(__name__)
 CORS(app)
@@ -68,73 +78,69 @@ def handle_preflight():
 # 		"encrypted_text": text_encrypted
 # 	}), 200
 
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography.hazmat.primitives.asymmetric import padding
-import base64, os
-from cryptography.hazmat.primitives.serialization import load_pem_public_key, load_pem_private_key
-from cryptography.hazmat.primitives.asymmetric import dsa, rsa
+
 
 def decrypt_dek_with_rsa(encrypted_dek_b64: str, private_key_pem: str) -> bytes:
-    encrypted_dek = base64.b64decode(encrypted_dek_b64)
+	encrypted_dek = base64.b64decode(encrypted_dek_b64)
 
-    private_key = serialization.load_pem_private_key(
-        private_key_pem.encode(),
-        password=None  # or passphrase bytes if your private key is encrypted
-    )
+	private_key = serialization.load_pem_private_key(
+		private_key_pem.encode(),
+		password=None  # or passphrase bytes if your private key is encrypted
+	)
 
-    decrypted_dek = private_key.decrypt(
-        encrypted_dek,
-        padding.PKCS1v15()
-    )
+	decrypted_dek = private_key.decrypt(
+		encrypted_dek,
+		padding.PKCS1v15()
+	)
 
-    return decrypted_dek
+	return decrypted_dek
 
 @app.route('/test-rsa', methods=['POST'])
 def test_rsa():
-    data = request.get_json()
-    public_key_pem = data['public_key']
-    aes_key = os.urandom(32)  # 256-bit AES key
+	data = request.get_json()
+	public_key_pem = data['public_key']
+	aes_key = os.urandom(32)  # 256-bit AES key
 
-    print(aes_key.hex())
-    encrypted_key = encrypt_dek_with_rsa(aes_key, public_key_pem)
+	print(aes_key.hex())
+	encrypted_key = encrypt_dek_with_rsa(aes_key, public_key_pem)
 
-    encrypted_text = encrypt_text("Some anamnesis text:", aes_key)
+	encrypted_text = encrypt_text("Some anamnesis text:", aes_key)
 
-    return jsonify({
-        'encrypted_key': encrypted_key,
-        'encrypted_text': encrypted_text 
-    })
+	return jsonify({
+		'encrypted_key': encrypted_key,
+		'encrypted_text': encrypted_text 
+	})
 
 @app.route("/test-rsa-update", methods=["POST"])
 def test_rsa_update():
-    data = request.get_json()
-    enc_key = data.get("encrypted_key")
-    enc_text = data.get("encrypted_text")
-    pid = data.get("patientid")
+	data = request.get_json()
+	enc_key = data.get("encrypted_key")
+	enc_text = data.get("encrypted_text")
+	pid = data.get("patientid")
 
-    # 1. Load your RSA private key from PEM 
+	# 1. Load your RSA private key from PEM 
 		
-    with open("private_key.pem", "rb") as f:
-        # print(f.read().hex())
-        private_key = serialization.load_pem_private_key(
+	with open("private_key.pem", "rb") as f:
+		# print(f.read().hex())
+		private_key = serialization.load_pem_private_key(
 			f.read(),
 			password=None
 		)
 		
-    # print(private_key)
+	# print(private_key)
 
-    encrypted_key_bytes = base64.b64decode(enc_key)
+	encrypted_key_bytes = base64.b64decode(enc_key)
 
-    aes_key = private_key.decrypt(
-        encrypted_key_bytes,
-        padding.PKCS1v15()
-    ).decode()
-    aes_key = base64.b64decode(aes_key)
-    # print(aes_key.hex())
-    # print(len(aes_key))
-    # print(decrypt_text(enc_text, aes_key))
+	aes_key = private_key.decrypt(
+		encrypted_key_bytes,
+		padding.PKCS1v15()
+	).decode()
+	aes_key = base64.b64decode(aes_key)
+	# print(aes_key.hex())
+	# print(len(aes_key))
+	# print(decrypt_text(enc_text, aes_key))
 
-    return jsonify({"status": "Success."}), 200
+	return jsonify({"status": "Success."}), 200
 
 @app.route('/anamnesis', methods=["GET"])
 @cross_origin()
@@ -223,7 +229,7 @@ def transcribe_audio():
 		result = model.transcribe(temp_path, language='en')
 		transcription = result['text']
 		# TODO make a funciton validate_text to convert trasncription into proper anamnesis via gpt
-		#text = validate_text(transcription)
+		#text = to_medical_format(transcription, client)
 		text = transcription
 		save_anamnesis(database, text, request.body["title"], pid, did, hid, enc_key)
 
