@@ -55,7 +55,34 @@ def save_patient(db, name, surname, email, fk_doctor, fk_hospital):
 	db.commit()
 	return cursor.lastrowid
 
+def fetch_stat_doctors(db):
+    cursor = db.cursor()
+    cursor.execute("""
+        SELECT name, surname, email, n_patients, n_anamnesis
+        FROM stat_doctors
+    """)
+    return cursor.fetchall()
 
+def fetch_stat_hospitals(db):
+    sql = """
+        SELECT name, n_patients, n_doctors, n_anamnesis, fk_hospital
+        FROM stat_hospital
+    """
+    cursor = db.cursor()
+    cursor.execute(sql)
+    res = cursor.fetchall()
+
+    hospitals = []
+    for row in res:
+        hospitals.append({
+            "name": row[0],
+            "n_patients": row[1],
+            "n_doctors": row[2],
+            "n_anamnesis": row[3],
+            "fk_hospital": row[4]
+        })
+
+    return hospitals
 
 def fetch_decrypted_anamnesis(db):
 	sql = f"""select p.enc_key, p.name as "Name", p.surname as "Surname", title as "Title", contents, d.name, d.surname, idAnamnesis from Anamnesis

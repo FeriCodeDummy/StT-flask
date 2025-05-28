@@ -9,7 +9,7 @@ import json
 import time
 import mysql.connector
 import os
-from dbm import save_transcribed, fetch_anamnesis, save_anamnesis, fetch_pid
+from dbm import save_transcribed, fetch_anamnesis, save_anamnesis, fetch_pid, fetch_stat_doctors,fetch_stat_hospitals
 from dotenv import load_dotenv, dotenv_values 
 import whisper
 import tempfile
@@ -34,6 +34,14 @@ PORT = int(get("MYSQL_PORT"))
 AES_KEY = get("MASTER_AES_KEY")
 OPENAI_API_KEY = get("OPENAI_API_KEY")
 
+def get_database():
+    return mysql.connector.connect(
+        host=HOST,
+        user=USER,
+        password=PSWD,
+        database="mediphone",
+        port=PORT
+    )
 
 print("[*] Connecting to MySQL database ...")
 try:
@@ -148,6 +156,29 @@ def test_rsa_update():
 def get_anamnesis():
 	res = fetch_anamnesis(database)
 	return jsonify({"anamnesis": res}), 200
+
+@app.route('/stats/doctors', methods=['GET'])
+def get_stat_doctors():
+    db = get_database()
+    rows = fetch_stat_doctors(db)
+    db.close()
+    return jsonify([
+        {
+            "name": row[0],
+            "surname": row[1],
+            "email": row[2],
+            "n_patients": row[3],
+            "n_anamnesis": row[4]
+        }
+        for row in rows
+    ]), 200
+
+@app.route('/stats/hospitals', methods=['GET'])
+def get_stat_hospitals():
+	db = get_database()
+	rows = fetch_stat_hospitals(db)
+	db.close()
+	return jsonify(rows), 200
 
 @app.route('/verify-token', methods=['POST'])
 def verify_token():
