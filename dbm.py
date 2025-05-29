@@ -101,7 +101,7 @@ def fetch_decrypted_anamnesis(db):
 	return decrypted
 
 def fetch_anamnesis_reencrypted(db, key_):
-	sql = f"""p.name as "Name", p.surname as "Surname", title as "Title", contents, d.name, d.surname, idAnamnesis, p.enc_key from Anamnesis
+	sql = f"""SELECT p.name as "Name", p.surname as "Surname", title as "Title", contents, d.name, d.surname, idAnamnesis, p.enc_key from Anamnesis
 	JOIN Patient as p on p.idPatient = Anamnesis.fk_patient
 	JOIN Doctor as d on d.idDoctor = p.fk_doctor;
 	"""
@@ -129,6 +129,12 @@ def update_anamnesis(db, text, aid, enc_key):
 	enc_key = decrypt_dek(enc_key)
 	contents = encrypt_text(text, enc_key)
 	sql = f"UPDATE Anamnesis SET contents='{contents}' where idAnamnesis = {aid};"
+	cursor = db.cursor()
+	cursor.execute(sql)
+	db.commit()
+
+def update_anamnesis_data(db, text, aid):
+	sql = f"UPDATE Anamnesis set contents = '{text}' WHERE aid = idAnamnesis;"
 	cursor = db.cursor()
 	cursor.execute(sql)
 	db.commit()

@@ -9,7 +9,7 @@ import json
 import time
 import mysql.connector
 import os
-from dbm import save_transcribed, fetch_anamnesis, save_anamnesis, fetch_pid, fetch_stat_doctors,fetch_stat_hospitals, fetch_anamnesis_reencrypted
+from dbm import save_transcribed, fetch_anamnesis, save_anamnesis, fetch_pid, fetch_stat_doctors,fetch_stat_hospitals, fetch_anamnesis_reencrypted, update_anamnesis_data
 from dotenv import load_dotenv, dotenv_values 
 import whisper
 import tempfile
@@ -124,29 +124,34 @@ def test_rsa_update():
 	data = request.get_json()
 	enc_key = data.get("encrypted_key")
 	enc_text = data.get("encrypted_text")
-	pid = data.get("patientid")
+	pid = data.get("patient_id")
+	aid = data.get("anamnesis_id")
 
-	# 1. Load your RSA private key from PEM 
-		
 	with open("private_key.pem", "rb") as f:
-		# print(f.read().hex())
 		private_key = serialization.load_pem_private_key(
 			f.read(),
 			password=None
 		)
 		
-	# print(private_key)
-
 	encrypted_key_bytes = base64.b64decode(enc_key)
 
 	aes_key = private_key.decrypt(
 		encrypted_key_bytes,
 		padding.PKCS1v15()
 	).decode()
+
 	aes_key = base64.b64decode(aes_key)
-	# print(aes_key.hex())
-	# print(len(aes_key))
-	# print(decrypt_text(enc_text, aes_key))
+
+	updated_text = decrypt_text(enc_text, aes_key)
+
+	pid, did, hid, enc_key = fetch_pid(database, request.body["id_"])
+	if pid == -1:
+	 	return jsonify({"error": "Patient id is invalid"}), 400
+	key_ = decrypt_dek(enc_key)
+	text = encrypt_text(updated_text, key_)
+	del key_
+
+	update_anamnesis_data(db, text, aid)
 
 	return jsonify({"status": "Success."}), 200
 
@@ -211,7 +216,6 @@ def verify_token():
 			else:
 				return jsonify({"error": "User not registered as Doctor or Personel"}), 403
 
-
 		payload = {
 			"sub": idinfo["sub"],
 			"email": idinfo["email"],
@@ -235,20 +239,8 @@ def verify_token():
 		print(f"[!] Token verification failed: {e}", flush=True)
 		return jsonify({"error": "Invalid token", "details": str(e)}), 401
 
-def debug(request):
-    print("---- REQUEST START ----")
-    print("Method:", request.method)
-    print("Path:", request.path)
-    print("Headers:\n", request.headers)
-    print("Form Data:\n", request.form)
-    print("Files:\n", request.files)
-    print("Raw Body:\n", request.get_data())
-    print("---- REQUEST END ----")
-
 @app.route('/transcribe', methods=["POST"])
 def transcribe_audio():
-	# debug(request)
-
 	if 'title' not in request.form:
 		return jsonify({"error": "Mising anamnesis title"}), 400
 	
