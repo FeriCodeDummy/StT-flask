@@ -1,29 +1,17 @@
 import os
 from gdpr_auth import generate_key, decrypt_text, decrypt_dek, encrypt_text
 from hashlib import sha256 
-def save_transcribed(db, text):
-	sql = f"INSERT INTO temp (`idTemp`, `transcription`) VALUES (NULL, \"{text}\")"
-	cursor = db.cursor()
-	cursor.execute(sql)
-	db.commit()
 
-def fetch_anamnesis(db):
-	sql = f"SELECT text from Temp;"
-	cursor = db.cursor()
-	cursor.execute(sql)
-	res = cursor.fetchall()
-	return res
 
 def create_hospital(db, name, country, city, address):
-	sql = f'INSERT INTO Hospital(`idHospital`, `name`, `country`, `city`, `address`) VALUES (NULL, "{name}", "{country}", "{city}", "{address}");'
+	sql = 'INSERT INTO Hospital(`idHospital`, `name`, `country`, `city`, `address`) VALUES (NULL, %s, %s, %s, %s);'
 	cursor = db.cursor()
-	cursor.execute(sql)
+	cursor.execute(sql, (name, country, citry, address))
 	db.commit()
 	return cursor.lastrowid
 
-
 def fetch_hospitals(db):
-	sql = f"SELECT * from Hospital;"
+	sql = "SELECT * FROM Hospital;"
 	cursor = db.cursor()
 	cursor.execute(sql)
 	res = cursor.fetchall()
@@ -31,15 +19,15 @@ def fetch_hospitals(db):
 
 def save_doctor(db, name, surname, email, fk_specialty, fk_hospital):
 	enc_key = generate_key()
-	sql = f"""INSERT INTO Doctor (`idDoctor`, `name`, `surname`, `enc_key`, `email`, `fk_specialty`, `fk_hospital`)
-				VALUES (NULL, '{name}', '{surname}', '{enc_key}', '{email}', {fk_specialty}, {fk_hospital});"""	
+	sql = """INSERT INTO Doctor (`idDoctor`, `name`, `surname`, `enc_key`, `email`, `fk_specialty`, `fk_hospital`)
+				VALUES (NULL, %s, %s, %s, %s, %s, %s)"""
 	cursor = db.cursor()
-	cursor.execute(sql)
+	cursor.execute(sql, (name, surname, enc_key, email, fk_specialty, fk_hospital, fk_specialty,fk_hospital))
 	db.commit()
 	return cursor.lastrowid
 
 def fetch_doctor_hospital(db):
-	sql = f'SELECT d.idDoctor as "fk_doc", d.name as "Name", surname, h.idHospital as "fk_hos", h.name as "Hospital" FROM Doctor as d JOIN Hospital as h ON h.idHospital = d.fk_hospital';
+	sql = 'SELECT d.idDoctor as "fk_doc", d.name as "Name", surname, h.idHospital as "fk_hos", h.name as "Hospital" FROM Doctor as d JOIN Hospital as h ON h.idHospital = d.fk_hospital';
 	cursor = db.cursor()
 	cursor.execute(sql)
 	res = cursor.fetchall()	
@@ -47,11 +35,10 @@ def fetch_doctor_hospital(db):
 
 def save_patient(db, name, surname, email, fk_doctor, fk_hospital):
 	enc_key = generate_key()
-	sql = f"""INSERT INTO Patient (`idPatient`, `name`, `surname`, `email`, `enc_key`, `fk_doctor`, `fk_hospital`)
-		VALUES (NULL, '{name}', '{surname}', '{email}', '{enc_key}', {fk_doctor}, {fk_hospital});"""
-	print(sql)
+	sql = """INSERT INTO Patient (`idPatient`, `name`, `surname`, `email`, `enc_key`, `fk_doctor`, `fk_hospital`)
+		VALUES (NULL, %s, %s, %s, %s, %s, %s);"""
 	cursor = db.cursor()
-	cursor.execute(sql)
+	cursor.execute(sql, (name, surname, email, enc_key, fk_doctor, fk_hospital))
 	db.commit()
 	return cursor.lastrowid
 
@@ -85,9 +72,9 @@ def fetch_stat_hospitals(db):
     return hospitals
 
 def fetch_decrypted_anamnesis(db):
-	sql = f"""select p.enc_key, p.name as "Name", p.surname as "Surname", title as "Title", contents, d.name, d.surname, idAnamnesis from Anamnesis
-	JOIN Patient as p on p.idPatient = Anamnesis.fk_patient
-	JOIN Doctor as d on d.idDoctor = p.fk_doctor;
+	sql = """SELECT p.enc_key, p.name AS "Name", p.surname AS "Surname", title AS "Title", contents, d.name, d.surname, idAnamnesis FROM Anamnesis
+	JOIN Patient AS p on p.idPatient = Anamnesis.fk_patient
+	JOIN Doctor AS d on d.idDoctor = p.fk_doctor;
 	"""
 	cursor = db.cursor()
 	cursor.execute(sql)
@@ -101,9 +88,9 @@ def fetch_decrypted_anamnesis(db):
 	return decrypted
 
 def fetch_anamnesis_reencrypted(db, key_):
-	sql = f"""SELECT p.name as "Name", p.surname as "Surname", title as "Title", contents, d.name, d.surname, idAnamnesis, p.enc_key, p.idPatient from Anamnesis
-	JOIN Patient as p on p.idPatient = Anamnesis.fk_patient
-	JOIN Doctor as d on d.idDoctor = p.fk_doctor
+	sql = """SELECT p.name AS "Name", p.surname AS "Surname", title AS "Title", contents, d.name, d.surname, idAnamnesis, p.enc_key, p.idPatient FROM Anamnesis
+	JOIN Patient AS p on p.idPatient = Anamnesis.fk_patient
+	JOIN Doctor AS d on d.idDoctor = p.fk_doctor
 	WHERE status = 'pending';
 	"""
 	cursor = db.cursor()
@@ -130,32 +117,32 @@ def fetch_anamnesis_reencrypted(db, key_):
 def update_anamnesis(db, text, aid, enc_key):
 	enc_key = decrypt_dek(enc_key)
 	contents = encrypt_text(text, enc_key)
-	sql = f"UPDATE Anamnesis SET contents='{contents}' where idAnamnesis = {aid};"
+	sql = "UPDATE Anamnesis SET contents=%s WHERE idAnamnesis = %s;"
+
 	cursor = db.cursor()
-	cursor.execute(sql)
+	cursor.execute(sql, (text, aid))
 	db.commit()
 
 def confirm_anamnesis(db, aid):
-	sql = f"UPDATE Anamnesis SET status = 'approved' WHERE idAnamesis = {aid};"
+	sql = "UPDATE Anamnesis SET status = 'approved' WHERE idAnamesis = %s;"
 	cursor = db.cursor()
-	cursor.execute(sql)
+	cursor.execute(sql, (aid))
 	db.commit()
-	
+
 def update_anamnesis_data(db, text, aid):
-	sql = f"UPDATE Anamnesis set contents = '{text}' WHERE idAnamnesis = {aid};"
+	sql = "UPDATE Anamnesis SET contents = %s WHERE idAnamnesis = %s;"
 	cursor = db.cursor()
-	cursor.execute(sql)
+	cursor.execute(sql, (text, aid))
 	db.commit()
 
 def save_anamnesis(db, title, text, pid, did, hid, enc_key):
 	enc_key = decrypt_dek(enc_key)
-	print(title)
 	contents = encrypt_text(text, enc_key)
-	sql = f"""INSERT INTO Anamnesis (`idAnamnesis`, `contents`, `title`, `fk_patient`, `fk_doctor`, `fk_hospital`)
-		VALUES(NULL, '{contents}', '{title}', {pid}, {did}, {hid});"""
-	
+
+	sql = """INSERT INTO Anamnesis (`idAnamnesis`, `contents`, `title`, `fk_patient`, `fk_doctor`, `fk_hospital`)
+		VALUES(NULL, %s, %s, %s, %s, %s);"""	
 	cursor = db.cursor()
-	cursor.execute(sql)
+	cursor.execute(sql, (contents, title, pid, did, hid))
 	db.commit()
 	return cursor.lastrowid
 
@@ -168,8 +155,8 @@ def fetch_specialties(db):
 	return res
 
 def fetch_all_patients(db):
-	sql = """SELECT idPatient, p.enc_key, p.name, p.surname, fk_doctor, p.fk_hospital, d.name, d.surname FROM Patient as p
-		JOIN Doctor as d ON fk_doctor = idDoctor;"""
+	sql = """SELECT idPatient, p.enc_key, p.name, p.surname, fk_doctor, p.fk_hospital, d.name, d.surname FROM Patient AS p
+		JOIN Doctor AS d ON fk_doctor = idDoctor;"""
 	cursor = db.cursor()
 	cursor.execute(sql)
 	res = cursor.fetchall()
