@@ -144,14 +144,15 @@ def test_rsa_update():
 
 	updated_text = decrypt_text(enc_text, aes_key)
 
-	pid, did, hid, enc_key = fetch_pid(database, request.body["id_"])
+	pid, did, hid, enc_key = fetch_pid(database, pid)
 	if pid == -1:
-	 	return jsonify({"error": "Patient id is invalid"}), 400
+		return jsonify({"error": "Patient id is invalid"}), 400
+
 	key_ = decrypt_dek(enc_key)
 	text = encrypt_text(updated_text, key_)
 	del key_
 
-	update_anamnesis_data(db, text, aid)
+	update_anamnesis_data(database, text, aid)
 
 	return jsonify({"status": "Success."}), 200
 

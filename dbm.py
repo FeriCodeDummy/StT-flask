@@ -101,7 +101,7 @@ def fetch_decrypted_anamnesis(db):
 	return decrypted
 
 def fetch_anamnesis_reencrypted(db, key_):
-	sql = f"""SELECT p.name as "Name", p.surname as "Surname", title as "Title", contents, d.name, d.surname, idAnamnesis, p.enc_key from Anamnesis
+	sql = f"""SELECT p.name as "Name", p.surname as "Surname", title as "Title", contents, d.name, d.surname, idAnamnesis, p.enc_key, p.idPatient from Anamnesis
 	JOIN Patient as p on p.idPatient = Anamnesis.fk_patient
 	JOIN Doctor as d on d.idDoctor = p.fk_doctor;
 	"""
@@ -120,7 +120,8 @@ def fetch_anamnesis_reencrypted(db, key_):
 			"contents": renc,
 			"d_name": item[4],
 			"d_surname": item[5],
-			"id_anamnesis": item[6]
+			"id_anamnesis": item[6],
+			"id_patient": item[8]
 		}
 		decrypted.append(js)
 	return decrypted
@@ -134,7 +135,7 @@ def update_anamnesis(db, text, aid, enc_key):
 	db.commit()
 
 def update_anamnesis_data(db, text, aid):
-	sql = f"UPDATE Anamnesis set contents = '{text}' WHERE aid = idAnamnesis;"
+	sql = f"UPDATE Anamnesis set contents = '{text}' WHERE idAnamnesis = {aid};"
 	cursor = db.cursor()
 	cursor.execute(sql)
 	db.commit()
@@ -177,7 +178,7 @@ def fetch_pid(db, hashed): #or ids, to be discussed
 	did = -1
 	enc = ''
 	for item in res:
-		h = sha256(item[0].encode('utf-8')).hexdigest()
+		h = sha256(str(item[0]).encode('utf-8')).hexdigest()
 		if hashed == h:
 			pid = item[0]
 			did = item[1]
