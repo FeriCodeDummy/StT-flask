@@ -234,18 +234,30 @@ def verify_token():
 	except ValueError as e:
 		print(f"[!] Token verification failed: {e}", flush=True)
 		return jsonify({"error": "Invalid token", "details": str(e)}), 401
-	
+
+def debug(request):
+    print("---- REQUEST START ----")
+    print("Method:", request.method)
+    print("Path:", request.path)
+    print("Headers:\n", request.headers)
+    print("Form Data:\n", request.form)
+    print("Files:\n", request.files)
+    print("Raw Body:\n", request.get_data())
+    print("---- REQUEST END ----")
+
 @app.route('/transcribe', methods=["POST"])
 def transcribe_audio():
-	if 'title' not in request.body:
+	# debug(request)
+
+	if 'title' not in request.form:
 		return jsonify({"error": "Mising anamnesis title"}), 400
 	
-	if 'id_' not in request.body:
+	if 'id_' not in request.form:
 		return jsonify({"error": "Missing patient key"}), 400
 
-	pid, did, hid, enc_key = fetch_pid(database, request.body["id_"])
-	if pid == -1:
-		return jsonify({"error": "Patient id is invalid"}), 400
+	# pid, did, hid, enc_key = fetch_pid(database, request.body["id_"])
+	# if pid == -1:
+	# 	return jsonify({"error": "Patient id is invalid"}), 400
 
 	if 'audio_file' not in request.files:
 		return jsonify({"error": "Missing 'audio_file'"}), 400
@@ -262,11 +274,11 @@ def transcribe_audio():
 		# TODO make a funciton validate_text to convert trasncription into proper anamnesis via gpt
 		#text = to_medical_format(transcription, client)
 		text = transcription
-		save_anamnesis(database, text, request.body["title"], pid, did, hid, enc_key)
+		# save_anamnesis(database, text, request.body["title"], pid, did, hid, enc_key)
 
 	except Exception as e:
 		print(e)
-		return
+		return jsonify({"error": e}), 500
 	finally:
 		os.remove(temp_path)  
 
