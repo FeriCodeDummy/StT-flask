@@ -100,6 +100,31 @@ def fetch_decrypted_anamnesis(db):
 		decrypted.append([item[1], item[2], item[3], text, item[5], item[6], item[7], enc_key])
 	return decrypted
 
+def fetch_anamnesis_reencrypted(db, key_):
+	sql = f"""p.name as "Name", p.surname as "Surname", title as "Title", contents, d.name, d.surname, idAnamnesis, p.enc_key from Anamnesis
+	JOIN Patient as p on p.idPatient = Anamnesis.fk_patient
+	JOIN Doctor as d on d.idDoctor = p.fk_doctor;
+	"""
+	cursor = db.cursor()
+	cursor.execute(sql)
+	res = cursor.fetchall()
+	decrypted = []
+	for item in res:
+		dec = decrypt_dek(item[7])
+		text = decrypt_text(item[3], dec)
+		renc = encrypt_text(text, key_)
+		js = {
+			"p_name": item[0],
+			"p_surname": item[1],
+			"title": item[2],
+			"contents": renc,
+			"d_name": item[4],
+			"d_surname": item[5],
+			"id_anamnesis": item[6]
+		}
+		decrypted.append(js)
+	return decrypted
+
 def update_anamnesis(db, text, aid, enc_key):
 	enc_key = decrypt_dek(enc_key)
 	contents = encrypt_text(text, enc_key)

@@ -5,7 +5,7 @@ def concat_mp3_files(file_list, output_file="processed.mp3", silence_duration=50
 
     combined = AudioSegment.empty()
     for i, file in enumerate(file_list):
-        audio = AudioSegment.from_mp3(file)
+        audio = AudioSegment.from_file(file)
         combined += audio
         if i < len(file_list) - 1:
             combined += silence

@@ -9,7 +9,7 @@ import json
 import time
 import mysql.connector
 import os
-from dbm import save_transcribed, fetch_anamnesis, save_anamnesis, fetch_pid, fetch_stat_doctors,fetch_stat_hospitals
+from dbm import save_transcribed, fetch_anamnesis, save_anamnesis, fetch_pid, fetch_stat_doctors,fetch_stat_hospitals, fetch_anamnesis_reencrypted
 from dotenv import load_dotenv, dotenv_values 
 import whisper
 import tempfile
@@ -105,21 +105,19 @@ def decrypt_dek_with_rsa(encrypted_dek_b64: str, private_key_pem: str) -> bytes:
 
 	return decrypted_dek
 
-@app.route('/test-rsa', methods=['POST'])
-def test_rsa():
+@app.route('/fetch-anamnesis', methods=['POST'])
+def fetch_anamnesis_request():
 	data = request.get_json()
 	public_key_pem = data['public_key']
-	aes_key = os.urandom(32)  # 256-bit AES key
-
-	print(aes_key.hex())
+	aes_key = os.urandom(32)
 	encrypted_key = encrypt_dek_with_rsa(aes_key, public_key_pem)
 
-	encrypted_text = encrypt_text("Some anamnesis text:", aes_key)
+	data = fetch_anamnesis_reencrypted(database, aes_key)
 
 	return jsonify({
 		'encrypted_key': encrypted_key,
-		'encrypted_text': encrypted_text 
-	})
+		'anamnesis': data 
+	}), 200
 
 @app.route("/test-rsa-update", methods=["POST"])
 def test_rsa_update():
@@ -274,8 +272,21 @@ def transcribe_audio():
 
 	return jsonify({"transription": transcription}), 200
 
+def debug(request):
+    print("---- REQUEST START ----")
+    print("Method:", request.method)
+    print("Path:", request.path)
+    print("Headers:\n", request.headers)
+    print("Form Data:\n", request.form)
+    print("Files:\n", request.files)
+    print("Raw Body:\n", request.get_data())
+    print("---- REQUEST END ----")
+
 @app.route("/test-multiple-recordings", methods=["POST"])
 def test_combo():
+	debug(request)	
+
+
 	if 'audio_files' not in request.files:
 		return jsonify({"error": "Missing 'audio_files'"}), 400
 	
@@ -294,11 +305,15 @@ def test_combo():
 		result = model.transcribe("final.mp3", language='en')
 		transcription = result['text']
 		#text = to_medical_format(transcription, client)
-		text = transcription
 		#save_anamnesis(database, text, request.body["title"], pid, did, hid, enc_key)
-
+		text=transcription
 		return jsonify({"message": text, "status": "success"}), 200
 	except Exception as e:
 		return jsonify({"error": e}), 500
+	finally:
+		os.remove(temp_path)
+		for file in filenames:
+			os.remove(file)
+
 if __name__ == '__main__':
 	app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
