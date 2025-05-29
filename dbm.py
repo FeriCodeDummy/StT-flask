@@ -103,7 +103,8 @@ def fetch_decrypted_anamnesis(db):
 def fetch_anamnesis_reencrypted(db, key_):
 	sql = f"""SELECT p.name as "Name", p.surname as "Surname", title as "Title", contents, d.name, d.surname, idAnamnesis, p.enc_key, p.idPatient from Anamnesis
 	JOIN Patient as p on p.idPatient = Anamnesis.fk_patient
-	JOIN Doctor as d on d.idDoctor = p.fk_doctor;
+	JOIN Doctor as d on d.idDoctor = p.fk_doctor
+	WHERE status = 'pending';
 	"""
 	cursor = db.cursor()
 	cursor.execute(sql)
@@ -134,6 +135,12 @@ def update_anamnesis(db, text, aid, enc_key):
 	cursor.execute(sql)
 	db.commit()
 
+def confirm_anamnesis(db, aid):
+	sql = f"UPDATE Anamnesis SET status = 'approved' WHERE idAnamesis = {aid};"
+	cursor = db.cursor()
+	cursor.execute(sql)
+	db.commit()
+	
 def update_anamnesis_data(db, text, aid):
 	sql = f"UPDATE Anamnesis set contents = '{text}' WHERE idAnamnesis = {aid};"
 	cursor = db.cursor()

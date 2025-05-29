@@ -9,7 +9,7 @@ import json
 import time
 import mysql.connector
 import os
-from dbm import save_transcribed, fetch_anamnesis, save_anamnesis, fetch_pid, fetch_stat_doctors,fetch_stat_hospitals, fetch_anamnesis_reencrypted, update_anamnesis_data
+from dbm import save_transcribed, confirm_anamnesis, fetch_anamnesis, save_anamnesis, fetch_pid, fetch_stat_doctors,fetch_stat_hospitals, fetch_anamnesis_reencrypted, update_anamnesis_data
 from dotenv import load_dotenv, dotenv_values 
 import whisper
 import tempfile
@@ -63,6 +63,7 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 app = Flask(__name__)
 CORS(app)
 
+
 @app.before_request
 def handle_preflight():
 	if request.method == "OPTIONS":
@@ -88,7 +89,12 @@ def handle_preflight():
 # 		"encrypted_text": text_encrypted
 # 	}), 200
 
-
+@app.route("/accept-anamnesis", methods=["POST"])
+def accept_anamnesis():
+	data = request.get_json()
+	aid = data.get('anamnesis_id')
+	confirm_anamnesis(database, aid)
+	return jsonify({"message": "updated", "status": "success"}), 200
 
 def decrypt_dek_with_rsa(encrypted_dek_b64: str, private_key_pem: str) -> bytes:
 	encrypted_dek = base64.b64decode(encrypted_dek_b64)
