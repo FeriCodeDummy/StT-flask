@@ -22,6 +22,7 @@ import base64, os
 from cryptography.hazmat.primitives.serialization import load_pem_public_key, load_pem_private_key
 from cryptography.hazmat.primitives.asymmetric import dsa, rsa
 from openai import OpenAI
+from utils import to_medical_format, concat_mp3_files
 load_dotenv() 
 get = os.getenv
 
@@ -285,5 +286,31 @@ def transcribe_audio():
 
 	return jsonify({"transription": transcription}), 200
 
+@app.route("/test-multiple-recordings", methods=["POST"])
+def test_combo():
+	if 'audio_files' not in request.files:
+		return jsonify({"error": "Missing 'audio_files'"}), 400
+	
+	filenames = []
+	uploaded_files = request.files.getlist("audio_files")
+	
+	for uploaded_file in uploaded_files:
+		with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp:
+			uploaded_file.save(temp.name)
+			filenames.append(temp.name)
+
+
+	temp_path = concat_mp3_files(filenames, "final.mp3") 
+	try:
+		model = whisper.load_model('base')
+		result = model.transcribe("final.mp3", language='en')
+		transcription = result['text']
+		#text = to_medical_format(transcription, client)
+		text = transcription
+		#save_anamnesis(database, text, request.body["title"], pid, did, hid, enc_key)
+
+		return jsonify({"message": text, "status": "success"}), 200
+	except Exception as e:
+		return jsonify({"error": e}), 500
 if __name__ == '__main__':
 	app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
