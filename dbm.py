@@ -101,7 +101,7 @@ def fetch_decrypted_anamnesis(db):
 	return decrypted
 
 def fetch_anamnesis_reencrypted(db, key_):
-	sql = f"""p.name as "Name", p.surname as "Surname", title as "Title", contents, d.name, d.surname, idAnamnesis, p.enc_key from Anamnesis
+	sql = f"""SELECT p.name as "Name", p.surname as "Surname", title as "Title", contents, d.name, d.surname, idAnamnesis, p.enc_key from Anamnesis
 	JOIN Patient as p on p.idPatient = Anamnesis.fk_patient
 	JOIN Doctor as d on d.idDoctor = p.fk_doctor;
 	"""
