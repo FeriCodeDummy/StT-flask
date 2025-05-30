@@ -23,6 +23,8 @@ from cryptography.hazmat.primitives.serialization import load_pem_public_key, lo
 from cryptography.hazmat.primitives.asymmetric import dsa, rsa
 from openai import OpenAI
 from utils import to_medical_format, concat_mp3_files
+from functools import wraps # JWT Wrapper
+from flask import request, jsonify
 load_dotenv() 
 get = os.getenv
 
@@ -34,6 +36,25 @@ PSWD = get("MYSQL_PASSWORD")
 PORT = int(get("MYSQL_PORT"))
 AES_KEY = get("MASTER_AES_KEY")
 OPENAI_API_KEY = get("OPENAI_API_KEY")
+
+
+
+def jwt_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return jsonify({"error": "Missing or invalid Authorization header"}), 401
+        token = auth_header.split(" ")[1]
+        try:
+            decoded = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+            request.user = decoded
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "Token expired"}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"error": "Invalid token"}), 401
+        return f(*args, **kwargs)
+    return wrapper
 
 def get_database():
     return mysql.connector.connect(
@@ -90,6 +111,7 @@ def handle_preflight():
 # 	}), 200
 
 @app.route("/accept-anamnesis", methods=["POST"])
+@jwt_required
 def accept_anamnesis():
 	data = request.get_json()
 	aid = data.get('anamnesis_id')
@@ -112,6 +134,7 @@ def decrypt_dek_with_rsa(encrypted_dek_b64: str, private_key_pem: str) -> bytes:
 	return decrypted_dek
 
 @app.route('/fetch-anamnesis', methods=['POST'])
+@jwt_required
 def fetch_anamnesis_request():
 	data = request.get_json()
 	public_key_pem = data['public_key']
@@ -126,6 +149,7 @@ def fetch_anamnesis_request():
 	}), 200
 
 @app.route("/test-rsa-update", methods=["POST"])
+@jwt_required
 def test_rsa_update():
 	data = request.get_json()
 	enc_key = data.get("encrypted_key")
@@ -169,6 +193,7 @@ def get_anamnesis():
 	return jsonify({"anamnesis": res}), 200
 
 @app.route('/stats/doctors', methods=['GET'])
+@jwt_required
 def get_stat_doctors():
     db = get_database()
     rows = fetch_stat_doctors(db)
@@ -185,6 +210,7 @@ def get_stat_doctors():
     ]), 200
 
 @app.route('/stats/hospitals', methods=['GET'])
+@jwt_required
 def get_stat_hospitals():
 	db = get_database()
 	rows = fetch_stat_hospitals(db)
@@ -247,6 +273,7 @@ def verify_token():
 		return jsonify({"error": "Invalid token", "details": str(e)}), 401
 
 @app.route('/transcribe', methods=["POST"])
+@jwt_required
 def transcribe_audio():
 	if 'title' not in request.form:
 		return jsonify({"error": "Mising anamnesis title"}), 400
@@ -294,6 +321,7 @@ def debug(request):
     print("---- REQUEST END ----")
 
 @app.route("/test-multiple-recordings", methods=["POST"])
+@jwt_required
 def test_combo():
 	debug(request)	
 
