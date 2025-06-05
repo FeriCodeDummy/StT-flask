@@ -208,7 +208,7 @@ def get_stat_doctors():
 def fetch_patients():
 	data = request.get_json()
 	try:
-		did = data.get("doctor_id")
+		did = data.get(database, "doctor_email")
 	except:
 		return jsonify({"error": "Missing required field doctor_id"}), 400
 	res = fetch_doctor_patients(did)
