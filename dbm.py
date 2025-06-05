@@ -1,6 +1,7 @@
 import os
 from gdpr_auth import generate_key, decrypt_text, decrypt_dek, encrypt_text
 from hashlib import sha256 
+from faker import Faker
 
 
 def create_hospital(db, name, country, city, address):
@@ -22,7 +23,7 @@ def save_doctor(db, name, surname, email, fk_specialty, fk_hospital):
 	sql = """INSERT INTO Doctor (`idDoctor`, `name`, `surname`, `enc_key`, `email`, `fk_specialty`, `fk_hospital`)
 				VALUES (NULL, %s, %s, %s, %s, %s, %s)"""
 	cursor = db.cursor()
-	cursor.execute(sql, (name, surname, enc_key, email, fk_specialty, fk_hospital, fk_specialty,fk_hospital))
+	cursor.execute(sql, (name, surname, enc_key, email, fk_specialty, fk_hospital))
 	db.commit()
 	return cursor.lastrowid
 
@@ -35,10 +36,15 @@ def fetch_doctor_hospital(db):
 
 def save_patient(db, name, surname, email, fk_doctor, fk_hospital):
 	enc_key = generate_key()
-	sql = """INSERT INTO Patient (`idPatient`, `name`, `surname`, `email`, `enc_key`, `fk_doctor`, `fk_hospital`)
-		VALUES (NULL, %s, %s, %s, %s, %s, %s);"""
+
+	fake = Faker()
+	date = fake.date_of_birth(maximum_age=65, minimum_age=18)
+
+
+	sql = """INSERT INTO Patient (`idPatient`, `name`, `surname`, `email`, `enc_key`, `fk_doctor`, `fk_hospital`, `gender`, `birthday`)
+		VALUES (NULL, %s, %s, %s, %s, %s, %s, 0, %s);"""
 	cursor = db.cursor()
-	cursor.execute(sql, (name, surname, email, enc_key, fk_doctor, fk_hospital))
+	cursor.execute(sql, (name, surname, email, enc_key, fk_doctor, fk_hospital, date))
 	db.commit()
 	return cursor.lastrowid
 
@@ -120,7 +126,7 @@ def update_anamnesis(db, text, aid, enc_key):
 	sql = "UPDATE Anamnesis SET contents=%s WHERE idAnamnesis = %s;"
 
 	cursor = db.cursor()
-	cursor.execute(sql, (text, aid))
+	cursor.execute(sql, (contents, aid))
 	db.commit()
 
 def confirm_anamnesis(db, aid):
@@ -162,7 +168,9 @@ def fetch_all_patients(db):
 	res = cursor.fetchall()
 	return res
 
-def fetch_pid(db, hashed): #or ids, to be discussed
+
+
+def fetch_pid(db, hashed):
 	sql = "SELECT idPatient, fk_doctor, fk_hospital, enc_key FROM Patient"
 	cursor = db.cursor()
 	cursor.execute(sql)
@@ -181,3 +189,32 @@ def fetch_pid(db, hashed): #or ids, to be discussed
 			break
 
 	return [pid, did, hid, enc]
+
+def fetch_doctor_patients(db, did):
+	sql = "SELECT name, surname, idPatient from Patient where fk_doctor = %s";
+	cursor = db.cursor()
+	cursor.execute(sql, (did))
+	res = db.fetchall()
+	return res
+
+def fetch_hospital_stats(db):
+	sql = """SELECT
+		h.name, 
+
+		d.fk_hospital,
+		COUNT(DISTINCT d.idDoctor) AS doctor_count,
+		COUNT(DISTINCT p.idPatient) AS patient_count,
+		COUNT(DISTINCT a.idAnamnesis) AS anamnesis_count,
+		 ROUND(COUNT(
+		 žDISTINCT a.idAnamnesis) / NULLIF(COUNT(DISTINCT d.idDoctor) , 0), 2) AS doctor_to_anamnesis_ratio
+	
+	FROM Doctor d
+	LEFT JOIN Patient p ON d.fk_hospital = p.fk_hospital
+	LEFT JOIN Anamnesis a ON d.fk_hospital = a.fk_hospital
+	LEFT JOIN Hospital h ON d.fk_hospital = idHospital
+	GROUP BY d.fk_hospital;
+	"""
+	cursor = db.cursor()
+	cursor.execute(sql)
+	res = cursor.fetchall()
+	return res

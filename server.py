@@ -9,7 +9,7 @@ import json
 import time
 import mysql.connector
 import os
-from dbm import save_transcribed, confirm_anamnesis, fetch_anamnesis, save_anamnesis, fetch_pid, fetch_stat_doctors,fetch_stat_hospitals, fetch_anamnesis_reencrypted, update_anamnesis_data
+from dbm import fetch_doctor_patients, confirm_anamnesis, save_anamnesis, fetch_pid, fetch_stat_doctors,fetch_stat_hospitals, fetch_anamnesis_reencrypted, update_anamnesis_data
 from dotenv import load_dotenv, dotenv_values 
 import whisper
 import tempfile
@@ -186,18 +186,11 @@ def test_rsa_update():
 
 	return jsonify({"status": "Success."}), 200
 
-@app.route('/anamnesis', methods=["GET"])
-@cross_origin()
-def get_anamnesis():
-	res = fetch_anamnesis(database)
-	return jsonify({"anamnesis": res}), 200
-
 @app.route('/stats/doctors', methods=['GET'])
 @jwt_required
 def get_stat_doctors():
     db = get_database()
     rows = fetch_stat_doctors(db)
-    db.close()
     return jsonify([
         {
             "name": row[0],
@@ -208,6 +201,27 @@ def get_stat_doctors():
         }
         for row in rows
     ]), 200
+
+
+@app.route('/fetch-patients', methods=["POST"])
+@jwt_required
+def fetch_patients():
+	data = request.get_json()
+	try:
+		did = data.get("doctor_id")
+	except:
+		return jsonify({"error": "Missing required field doctor_id"}), 400
+	res = fetch_doctor_patients(did)
+	patients = []
+
+	for item in res:
+		patients.append({
+			"patient_id": item[2],
+			"name": item[0],
+			"surname": item[1]
+		})
+
+	return jsonify({"patients": patients}), 200
 
 @app.route('/stats/hospitals', methods=['GET'])
 @jwt_required
