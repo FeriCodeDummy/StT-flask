@@ -204,7 +204,6 @@ def get_stat_doctors():
 
 
 @app.route('/fetch-patients', methods=["POST"])
-@jwt_required
 def fetch_patients():
 	data = request.get_json()
 	try:
