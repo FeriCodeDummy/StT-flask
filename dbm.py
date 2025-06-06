@@ -191,11 +191,16 @@ def fetch_pid(db, hashed):
 	return [pid, did, hid, enc]
 
 def fetch_doctor_patients(db, email):
-	sql = "SELECT p.name, p.surname, idPatient from Doctor JOIN Patient on fk_doctor = idDoctor where Doctor.email = %s";
-	cursor = db.cursor()
-	cursor.execute(sql, (email))
-	res = db.fetchall()
-	return res
+    sql = """
+        SELECT p.name, p.surname, p.idPatient
+        FROM Doctor AS d
+        JOIN Patient AS p ON p.fk_doctor = d.idDoctor
+        WHERE d.email = %s;
+        """
+    cursor = db.cursor()
+    cursor.execute(sql, (email, ))
+    res = cursor.fetchall()
+    return res
 
 def fetch_hospital_stats(db):
 	sql = """SELECT

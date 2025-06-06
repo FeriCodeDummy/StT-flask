@@ -204,23 +204,26 @@ def get_stat_doctors():
 
 
 @app.route('/fetch-patients', methods=["POST"])
+@jwt_required
 def fetch_patients():
-	data = request.get_json()
-	try:
-		did = data.get(database, "doctor_email")
-	except:
-		return jsonify({"error": "Missing required field doctor_id"}), 400
-	res = fetch_doctor_patients(did)
-	patients = []
+    data = request.get_json()
+    try:
+        did = data.get("doctor_email")
+    except:
+        return jsonify({"error": "Missing required field doctor_id"}), 400
+    print("It did: ")
+    print(did)
+    res = fetch_doctor_patients(database, did)
+    patients = []
 
-	for item in res:
-		patients.append({
-			"patient_id": item[2],
-			"name": item[0],
-			"surname": item[1]
-		})
+    for item in res:
+        patients.append({
+            "patient_id": item[2],
+            "name": item[0],
+            "surname": item[1]
+        })
 
-	return jsonify({"patients": patients}), 200
+    return jsonify({"patients": patients}), 200
 
 @app.route('/stats/hospitals', methods=['GET'])
 @jwt_required
@@ -336,9 +339,7 @@ def debug(request):
 @app.route("/test-multiple-recordings", methods=["POST"])
 @jwt_required
 def test_combo():
-	debug(request)	
-
-
+	debug(request)
 	if 'audio_files' not in request.files:
 		return jsonify({"error": "Missing 'audio_files'"}), 400
 	
