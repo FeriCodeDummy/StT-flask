@@ -54,13 +54,31 @@ def decrypt_text(encrypted_b64: str, dek: bytes) -> str:
     plaintext = aesgcm.decrypt(nonce, ciphertext, None)
     return plaintext.decode()
 
-def encrypt_dek_with_rsa(dek: bytes, public_key_pem: str):
-    public_key = serialization.load_pem_public_key(public_key_pem.encode())
+import base64
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+
+def encrypt_dek_with_rsa(dek: bytes, public_key_pem: str) -> str:
+    pem = public_key_pem.strip()
+
+    try:
+        public_key = serialization.load_pem_public_key(pem.encode("utf-8"))
+    except ValueError:
+        if pem.startswith("-----BEGIN RSA PUBLIC KEY-----"):
+            body = pem.replace("-----BEGIN RSA PUBLIC KEY-----", "") \
+                      .replace("-----END RSA PUBLIC KEY-----", "") \
+                      .strip()
+            der_bytes = base64.b64decode(body)
+            public_key = serialization.load_der_public_key(der_bytes)
+        else:
+            raise
+
     encrypted_dek = public_key.encrypt(
         dek,
         padding.PKCS1v15()
     )
-    return base64.b64encode(encrypted_dek).decode()
+
+    return base64.b64encode(encrypted_dek).decode("utf-8")
 
 
 def encrypt_key_rsa(patient_key, doctor_key, public_key, text):
