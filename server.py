@@ -92,24 +92,6 @@ def handle_preflight():
 		res.headers['X-Content-Type-Options'] = '*'
 		return res
 
-# @app.route("/test-rsa", methods=["POST"])
-# def test_rsa():
-
-# 	data = request.get_json()
-# 	print(data)
-	
-# 	pub_key = data.get("public_key")
-# 	text = "Yeeeeeeeeeet"
-# 	key = os.urandom(32)
-# 	enc_key = encrypt_dek_with_rsa(key, pub_key)
-# 	text_encrypted = encrypt_text(text, key)
-
-# 	print(enc_key)
-# 	return jsonify({
-# 		"encrypted_key": enc_key,
-# 		"encrypted_text": text_encrypted
-# 	}), 200
-
 @app.route("/accept-anamnesis", methods=["POST"])
 @jwt_required
 def accept_anamnesis():
@@ -148,9 +130,9 @@ def fetch_anamnesis_request():
 		'anamnesis': data 
 	}), 200
 
-@app.route("/test-rsa-update", methods=["POST"])
+@app.route("/update-anamnesis", methods=["POST"])
 @jwt_required
-def test_rsa_update():
+def update_anamnesis_data_():
 	data = request.get_json()
 	enc_key = data.get("encrypted_key")
 	enc_text = data.get("encrypted_text")
@@ -230,7 +212,6 @@ def fetch_patients():
 def get_stat_hospitals():
 	db = get_database()
 	rows = fetch_stat_hospitals(db)
-	db.close()
 	return jsonify(rows), 200
 
 @app.route('/verify-token', methods=['POST'])
@@ -287,57 +268,9 @@ def verify_token():
         print(f"[VERIFY‐TOKEN] Token verification failed: {e}")
         return jsonify({ "error": "Invalid token", "details": str(e) }), 401
 
-@app.route('/transcribe', methods=["POST"])
+@app.route("/multiple-recordings", methods=["POST"])
 @jwt_required
-def transcribe_audio():
-    if 'title' not in request.form:
-        return jsonify({"error": "Missing anamnesis title"}), 400
-
-    if 'id_' not in request.form:
-        return jsonify({"error": "Missing patient key"}), 400
-
-    if 'audio_file' not in request.files:
-        return jsonify({"error": "Missing 'audio_file'"}), 400
-
-    uploaded_file = request.files['audio_file']
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp:
-        uploaded_file.save(temp.name)
-        temp_path = temp.name
-
-    transcription = ""
-    try:
-        model = whisper.load_model('base')
-        result = model.transcribe(temp_path, language='en')
-        transcription = result['text']
-
-        hashed_id = request.form['id_']
-        pid, did, hid, enc_key = fetch_pid(database, hashed_id)
-        if pid == -1:
-            return jsonify({"error": "Patient id is invalid"}), 400
-
-        save_anamnesis(
-            database,
-            request.form['title'],
-            transcription,
-            pid,
-            did,
-            hid,
-            enc_key
-        )
-
-    except Exception as e:
-        print(e)
-        return jsonify({"error": str(e)}), 500
-
-    finally:
-        os.remove(temp_path)
-
-    return jsonify({"transription": transcription}), 200
-
-@app.route("/test-multiple-recordings", methods=["POST"])
-@jwt_required
-def test_combo():
+def multiple_recordings():
     debug(request)
 
     if 'audio_files' not in request.files:
@@ -427,7 +360,6 @@ def fetch_pending_anamnesis_all():
     """
     cursor.execute(sql)
     rows = cursor.fetchall()
-    db.close()
 
     result = []
     for row in rows:
@@ -495,7 +427,6 @@ def update_personel_anamnesis():
     cursor.execute("SELECT enc_key FROM Patient WHERE idPatient = %s;", (pid,))
     patient_row = cursor.fetchone()
     if not patient_row:
-        db.close()
         return jsonify({"error": "Invalid patient ID"}), 400
 
     patient_enc_key_b64 = patient_row[0]
@@ -512,11 +443,9 @@ def update_personel_anamnesis():
         db.commit()
 
     except Exception as e:
-        db.close()
         print(f"Failed to update anamnesis #{anam_id}: {e}")
         return jsonify({"error": "Encryption or DB update failed"}), 500
 
-    db.close()
     return jsonify({"status": "approved"}), 200
 if __name__ == '__main__':
 	app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
