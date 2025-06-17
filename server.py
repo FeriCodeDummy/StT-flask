@@ -1,34 +1,23 @@
-from flask import Flask, request, jsonify, request, Response
-import jwt
-from datetime import datetime, timedelta
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
-import wave
-import io
-import json
-import time
+from functools import wraps
+
+from flask import Flask, request, Response, jsonify
+
 import mysql.connector
-import os
-from dbm import fetch_doctor_patients, confirm_anamnesis, save_anamnesis, fetch_pid, fetch_stat_doctors,fetch_stat_hospitals, fetch_anamnesis_reencrypted, update_anamnesis_data
-from dotenv import load_dotenv, dotenv_values 
+from dbm import fetch_doctor_patients, confirm_anamnesis, save_anamnesis, fetch_pid, fetch_anamnesis_reencrypted, update_anamnesis_data
+from dotenv import load_dotenv
 import whisper
 import tempfile
-from flask_cors import CORS, cross_origin
-from medic import to_medical_format
-from gdpr_auth import generate_key, encrypt_text, decrypt_text, encrypt_dek_with_rsa, decrypt_dek
-from cryptography.hazmat.primitives import serialization, hashes
+from flask_cors import CORS
+from gdpr_auth import encrypt_text, decrypt_text, encrypt_dek_with_rsa, decrypt_dek
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
-import base64, os
-from cryptography.hazmat.primitives.serialization import load_pem_public_key, load_pem_private_key
-from cryptography.hazmat.primitives.asymmetric import dsa, rsa
+import base64
+import os
 from openai import OpenAI
 from utils import to_medical_format, concat_mp3_files
-from functools import wraps # JWT Wrapper
-from flask import request, jsonify
-load_dotenv() 
-get = os.getenv
 
-SECRET_KEY = os.getenv("JWT_SECRET", "fallback-dev-secret")
+load_dotenv()
+get = os.getenv
 
 HOST = get("MYSQL_HOST")
 USER = get("MYSQL_USER")
@@ -38,41 +27,14 @@ AES_KEY = get("MASTER_AES_KEY")
 OPENAI_API_KEY = get("OPENAI_API_KEY")
 
 
-
-def jwt_required(f):
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            return jsonify({"error": "Missing or invalid Authorization header"}), 401
-        token = auth_header.split(" ")[1]
-        try:
-            decoded = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            request.user = decoded
-        except jwt.ExpiredSignatureError:
-            return jsonify({"error": "Token expired"}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({"error": "Invalid token"}), 401
-        return f(*args, **kwargs)
-    return wrapper
-
-def get_database():
-    return mysql.connector.connect(
-        host=HOST,
-        user=USER,
-        password=PSWD,
-        database="mediphone",
-        port=PORT
-    )
-
 print("[*] Connecting to MySQL database ...")
 try:
 	database = mysql.connector.connect(
-		  host=HOST,
-		  user=USER,
-		  password=PSWD,
-		  database="mediphone",
-		  port=PORT
+		host=HOST,
+		user=USER,
+		password=PSWD,
+		database="mediphone",
+		port=PORT
 	)
 	print("[+] Connection successful")
 except Exception as e:
@@ -85,6 +47,25 @@ app = Flask(__name__)
 CORS(app)
 
 
+def log_access(action_type, target_table=None, target_id=None):
+	def decorator(func):
+		@wraps(func)
+		def wrapper(*args, **kwargs):
+			user_email = getattr(request, 'user_email', 'anonymous')  # Customize this
+			ip = request.remote_addr
+			ua = request.headers.get('User-Agent')
+
+			sql = "INSERT INTO AccessLog (user_email, action_type, target_table, target_id, ip_address, user_agent) VALUES (%s, %s, %s, %s, %s, %s)"
+			cursor = database.cursor()
+			cursor.execute(sql, (user_email, action_type, target_table, target_id, ip, ua))
+			database.commit()
+			return func(*args, **kwargs)
+
+		return wrapper
+
+	return decorator
+
+
 @app.before_request
 def handle_preflight():
 	if request.method == "OPTIONS":
@@ -92,31 +73,19 @@ def handle_preflight():
 		res.headers['X-Content-Type-Options'] = '*'
 		return res
 
+
 @app.route("/accept-anamnesis", methods=["POST"])
-@jwt_required
+@log_access(action_type="UPDATE", target_table='Anamnesis')
 def accept_anamnesis():
+	# TODO Add verification?
 	data = request.get_json()
 	aid = data.get('anamnesis_id')
 	confirm_anamnesis(database, aid)
 	return jsonify({"message": "updated", "status": "success"}), 200
 
-def decrypt_dek_with_rsa(encrypted_dek_b64: str, private_key_pem: str) -> bytes:
-	encrypted_dek = base64.b64decode(encrypted_dek_b64)
-
-	private_key = serialization.load_pem_private_key(
-		private_key_pem.encode(),
-		password=None
-	)
-
-	decrypted_dek = private_key.decrypt(
-		encrypted_dek,
-		padding.PKCS1v15()
-	)
-
-	return decrypted_dek
 
 @app.route('/fetch-anamnesis', methods=['POST'])
-@jwt_required
+@log_access(action_type="READ", target_table='Anamnesis')
 def fetch_anamnesis_request():
 	data = request.get_json()
 	public_key_pem = data['public_key']
@@ -127,11 +96,12 @@ def fetch_anamnesis_request():
 
 	return jsonify({
 		'encrypted_key': encrypted_key,
-		'anamnesis': data 
+		'anamnesis': data
 	}), 200
 
+
 @app.route("/update-anamnesis", methods=["POST"])
-@jwt_required
+@log_access(action_type="UPDATE", target_table='Anamnesis')
 def update_anamnesis_data_():
 	data = request.get_json()
 	enc_key = data.get("encrypted_key")
@@ -144,7 +114,7 @@ def update_anamnesis_data_():
 			f.read(),
 			password=None
 		)
-		
+
 	encrypted_key_bytes = base64.b64decode(enc_key)
 
 	aes_key = private_key.decrypt(
@@ -168,284 +138,87 @@ def update_anamnesis_data_():
 
 	return jsonify({"status": "Success."}), 200
 
-@app.route('/stats/doctors', methods=['GET'])
-@jwt_required
-def get_stat_doctors():
-    db = get_database()
-    rows = fetch_stat_doctors(db)
-    return jsonify([
-        {
-            "name": row[0],
-            "surname": row[1],
-            "email": row[2],
-            "n_patients": row[3],
-            "n_anamnesis": row[4]
-        }
-        for row in rows
-    ]), 200
-
 
 @app.route('/fetch-patients', methods=["POST"])
-@jwt_required
+@log_access(action_type="READ", target_table='Patient')
 def fetch_patients():
-    data = request.get_json()
-    try:
-        did = data.get("doctor_email")
-    except:
-        return jsonify({"error": "Missing required field doctor_id"}), 400
-    print("It did: ")
-    print(did)
-    res = fetch_doctor_patients(database, did)
-    patients = []
+	data = request.get_json()
+	try:
+		did = data.get("doctor_email")
+	except:
+		return jsonify({"error": "Missing required field doctor_id"}), 400
+	print("It did: ")
+	print(did)
+	res = fetch_doctor_patients(database, did)
+	patients = []
 
-    for item in res:
-        patients.append({
-            "patient_id": item[2],
-            "name": item[0],
-            "surname": item[1]
-        })
+	for item in res:
+		patients.append({
+			"patient_id": item[2],
+			"name": item[0],
+			"surname": item[1]
+		})
 
-    return jsonify({"patients": patients}), 200
+	return jsonify({"patients": patients}), 200
 
-@app.route('/stats/hospitals', methods=['GET'])
-@jwt_required
-def get_stat_hospitals():
-	db = get_database()
-	rows = fetch_stat_hospitals(db)
-	return jsonify(rows), 200
-
-@app.route('/verify-token', methods=['POST'])
-def verify_token():
-    start = time.time()
-    data = request.get_json()
-    token = data.get("idToken")
-    if not token:
-        return jsonify({ "error": "Missing idToken" }), 400
-
-    try:
-        idinfo = id_token.verify_oauth2_token(token, google_requests.Request())
-        email = idinfo["email"]
-        name  = idinfo["name"]
-
-        cursor = database.cursor(dictionary=True)
-
-        cursor.execute("SELECT * FROM Doctor WHERE email = %s", (email,))
-        doctor = cursor.fetchone()
-        print(f"[VERIFY‐TOKEN] Looking in Doctor for {email} → doctor row = {doctor}")
-
-        if doctor:
-            role = "doctor"
-        else:
-            cursor.execute("SELECT * FROM Personel WHERE email = %s", (email,))
-            personel = cursor.fetchone()
-            print(f"[VERIFY‐TOKEN] Looking in Personel for {email} → personel row = {personel}")
-
-            if personel:
-                role = "personel"
-            else:
-                print(f"[VERIFY‐TOKEN] NO doctor AND NO personel row for {email}.")
-                return jsonify({ "error": "User not registered as Doctor or Personel" }), 403
-
-        payload = {
-            "sub":   idinfo["sub"],
-            "email": email,
-            "name":  name,
-            "role":  role,
-            "exp":   datetime.utcnow() + timedelta(hours=2)
-        }
-        jwt_token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
-        print(f"[VERIFY‐TOKEN] → issuing JWT with role={role}")
-
-        return jsonify({
-            "message": "Token is valid",
-            "jwt":     jwt_token,
-            "email":   email,
-            "name":    name,
-            "role":    role
-        }), 200
-
-    except ValueError as e:
-        print(f"[VERIFY‐TOKEN] Token verification failed: {e}")
-        return jsonify({ "error": "Invalid token", "details": str(e) }), 401
 
 @app.route("/multiple-recordings", methods=["POST"])
-@jwt_required
+@log_access(action_type="WRITE", target_table='Anamnesis')
 def multiple_recordings():
-    debug(request)
+	if 'id_' not in request.form:
+		return jsonify({"error": "Missing patient key"}), 400
+	hashed_id = request.form['id_']
 
-    if 'audio_files' not in request.files:
-        return jsonify({"error": "Missing 'audio_files'"}), 400
+	if 'title' not in request.form:
+		return jsonify({"error": "Missing anamnesis title"}), 400
+	title = request.form['title']
 
-    uploaded_files = request.files.getlist("audio_files")
-    if len(uploaded_files) == 0:
-        return jsonify({"error": "No audio files"}), 400
+	if 'audio_files' not in request.files:
+		return jsonify({"error": "Missing 'audio_files'"}), 400
 
-    filenames = []
-    try:
-        for uploaded_file in uploaded_files:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp:
-                uploaded_file.save(temp.name)
-                filenames.append(temp.name)
+	uploaded_files = request.files.getlist("audio_files")
+	if len(uploaded_files) == 0:
+		return jsonify({"error": "No audio files"}), 400
 
-        temp_path = concat_mp3_files(filenames, "final.mp3")
+	pid, did, hid, enc_key = fetch_pid(database, hashed_id)
+	if pid == -1:
+		return jsonify({"error": "Patient id is invalid"}), 400
 
-        model = whisper.load_model('base')
-        result = model.transcribe("final.mp3", language='en')
-        transcription = result['text']
+	filenames = []
+	try:
+		for uploaded_file in uploaded_files:
+			with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp:
+				uploaded_file.save(temp.name)
+				filenames.append(temp.name)
 
-        if 'id_' not in request.form:
-            return jsonify({"error": "Missing patient key"}), 400
-        hashed_id = request.form['id_']
+		temp_path = concat_mp3_files(filenames, "final.mp3")
 
-        pid, did, hid, enc_key = fetch_pid(database, hashed_id)
-        if pid == -1:
-            return jsonify({"error": "Patient id is invalid"}), 400
+		model = whisper.load_model("large-v3")
+		result = model.transcribe(temp_path, language='sl')
+		transcription = result['text']
 
-        if 'title' not in request.form:
-            return jsonify({"error": "Missing anamnesis title"}), 400
-        title = request.form['title']
+		text = to_medical_format(transcription, client)
 
-        save_anamnesis(
-            database,
-            title,
-            transcription,
-            pid,
-            did,
-            hid,
-            enc_key
-        )
-        return jsonify({"message": transcription, "status": "success"}), 200
+		save_anamnesis(
+			database,
+			title,
+			text,
+			pid,
+			did,
+			enc_key
+		)
+		return jsonify({"message": transcription, "status": "success"}), 200
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+	except Exception as e:
+		return jsonify({"error": str(e)}), 500
 
-    finally:
-        if os.path.exists("final.mp3"):
-            os.remove("final.mp3")
-        for file in filenames:
-            if os.path.exists(file):
-                os.remove(file)
+	finally:
+		if os.path.exists("final.mp3"):
+			os.remove("final.mp3")
+		for file in filenames:
+			if os.path.exists(file):
+				os.remove(file)  # TODO modify
 
-@app.route('/fetch-pending-anamnesis-all', methods=['GET'])
-@jwt_required
-def fetch_pending_anamnesis_all():
-    """
-    For personnel: return a JSON array of all pending anamnesis entries.
-    Each item: {
-        "id_anamnesis": <int>,
-        "p_name": <patient name>,
-        "p_surname": <patient surname>,
-        "title": <title>,
-        "contents": <decrypted plaintext>,
-        "d_name": <doctor name>,
-        "d_surname": <doctor surname>
-    }
-    """
-    db = get_database()
-    cursor = db.cursor()
 
-    sql = """
-        SELECT a.idAnamnesis,
-               p.name AS p_name,
-               p.surname AS p_surname,
-               a.title,
-               a.contents,       -- encrypted blob
-               d.name AS d_name,
-               d.surname AS d_surname,
-               p.enc_key         -- the patient's encrypted DEK
-        FROM Anamnesis AS a
-        JOIN Patient   AS p ON a.fk_patient = p.idPatient
-        JOIN Doctor    AS d ON a.fk_doctor  = d.idDoctor
-        WHERE a.status = 'pending';
-    """
-    cursor.execute(sql)
-    rows = cursor.fetchall()
-
-    result = []
-    for row in rows:
-        (
-            id_anam,
-            p_name,
-            p_surname,
-            title,
-            enc_contents_blob,
-            d_name,
-            d_surname,
-            patient_enc_key_b64
-        ) = row
-
-        try:
-            patient_dek = decrypt_dek(patient_enc_key_b64)
-            plaintext = decrypt_text(enc_contents_blob, patient_dek)
-
-        except Exception as e:
-            plaintext = ""
-            print(f"Failed to decrypt anamnesis #{id_anamnes}: {e}")
-
-        result.append({
-            "id_anamnesis": id_anam,
-            "p_name":       p_name,
-            "p_surname":    p_surname,
-            "title":        title,
-            "contents":     plaintext,
-            "d_name":       d_name,
-            "d_surname":    d_surname
-        })
-
-    return jsonify(result), 200
-@app.route('/update-personel-anamnesis', methods=['POST'])
-@jwt_required
-def update_personel_anamnesis():
-    """
-    Accepts JSON: { "anamnesis_id": <int>, "contents": "<plaintext string>" }
-    Re-encrypts the new plaintext under the patient’s DEK, updates the row,
-    and sets status = 'approved'.
-    """
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "Missing JSON body"}), 400
-
-    anam_id = data.get("anamnesis_id")
-    new_plain = data.get("contents", "").strip()
-
-    if anam_id is None or new_plain == "":
-        return jsonify({"error": "Missing required fields"}), 400
-
-    db = get_database()
-    cursor = db.cursor()
-    cursor.execute(
-        "SELECT fk_patient FROM Anamnesis WHERE idAnamnesis = %s AND status = 'pending';",
-        (anam_id,)
-    )
-    row = cursor.fetchone()
-    if not row:
-        db.close()
-        return jsonify({"error": "No such pending anamnesis or already approved"}), 404
-
-    pid = row[0]
-
-    cursor.execute("SELECT enc_key FROM Patient WHERE idPatient = %s;", (pid,))
-    patient_row = cursor.fetchone()
-    if not patient_row:
-        return jsonify({"error": "Invalid patient ID"}), 400
-
-    patient_enc_key_b64 = patient_row[0]
-
-    try:
-        patient_dek = decrypt_dek(patient_enc_key_b64)
-
-        new_enc = encrypt_text(new_plain, patient_dek)
-
-        cursor.execute(
-            "UPDATE Anamnesis SET contents = %s, status = 'approved', updated_at = NOW() WHERE idAnamnesis = %s;",
-            (new_enc, anam_id)
-        )
-        db.commit()
-
-    except Exception as e:
-        print(f"Failed to update anamnesis #{anam_id}: {e}")
-        return jsonify({"error": "Encryption or DB update failed"}), 500
-
-    return jsonify({"status": "approved"}), 200
 if __name__ == '__main__':
 	app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
