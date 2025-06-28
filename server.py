@@ -1,20 +1,19 @@
-from functools import wraps
-
-from flask import Flask, request, Response, jsonify
-
-import mysql.connector
-from dbm import fetch_doctor_patients, confirm_anamnesis, save_anamnesis, fetch_pid, fetch_anamnesis_reencrypted, update_anamnesis_data
-from dotenv import load_dotenv
-import whisper
-import tempfile
-from flask_cors import CORS
-from gdpr_auth import encrypt_text, decrypt_text, encrypt_dek_with_rsa, decrypt_dek
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import padding
 import base64
 import os
+import tempfile
+from functools import wraps
+import requests
+import mysql.connector
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from dotenv import load_dotenv
+from flask import Flask, request, Response, jsonify
+from flask_cors import CORS
 from openai import OpenAI
-from utils import to_medical_format, concat_mp3_files
+from binascii import hexlify
+from dbm import fetch_doctor_patients, confirm_anamnesis, fetch_pid, fetch_anamnesis_reencrypted, update_anamnesis_data
+from gdpr_auth import encrypt_text, decrypt_text, encrypt_dek_with_rsa, decrypt_dek, encrypt_file
+from utils import concat_wav_files
 
 load_dotenv()
 get = os.getenv
@@ -25,7 +24,6 @@ PSWD = get("MYSQL_PASSWORD")
 PORT = int(get("MYSQL_PORT"))
 AES_KEY = get("MASTER_AES_KEY")
 OPENAI_API_KEY = get("OPENAI_API_KEY")
-
 
 print("[*] Connecting to MySQL database ...")
 try:
@@ -87,6 +85,8 @@ def accept_anamnesis():
 @app.route('/fetch-anamnesis', methods=['POST'])
 @log_access(action_type="READ", target_table='Anamnesis')
 def fetch_anamnesis_request():
+	# TODO Conditionally, if doctor, fetch his, if admin ... Fetch all? Or one, assigned with some function?
+	# Does it break gdpr?
 	data = request.get_json()
 	public_key_pem = data['public_key']
 	aes_key = os.urandom(32)
@@ -162,62 +162,61 @@ def fetch_patients():
 	return jsonify({"patients": patients}), 200
 
 
-@app.route("/multiple-recordings", methods=["POST"])
+@app.route("/save-transcribed-anamnesis", methods=["POST"])
 @log_access(action_type="WRITE", target_table='Anamnesis')
-def multiple_recordings():
-	if 'id_' not in request.form:
-		return jsonify({"error": "Missing patient key"}), 400
-	hashed_id = request.form['id_']
+def transcribed_anamnesis():
+	if 'transcription' not in request.form:
+		return jsonify({"error": "Missing anamnesis transcription"}), 400
+	print(request.form['transcription'])
+	return jsonify({"message": request.form['transcription']}), 200
 
-	if 'title' not in request.form:
-		return jsonify({"error": "Missing anamnesis title"}), 400
-	title = request.form['title']
+
+@app.route("/multiple-recordings", methods=["POST"])
+@log_access(action_type="READ", target_table='Patient')
+def multiple_recordings():
+
 
 	if 'audio_files' not in request.files:
+		print(request.files)
 		return jsonify({"error": "Missing 'audio_files'"}), 400
 
 	uploaded_files = request.files.getlist("audio_files")
+
 	if len(uploaded_files) == 0:
 		return jsonify({"error": "No audio files"}), 400
-
-	pid, did, hid, enc_key = fetch_pid(database, hashed_id)
+	"""
+	pid, enc_key = fetch_pid(database, hashed_id)
 	if pid == -1:
 		return jsonify({"error": "Patient id is invalid"}), 400
-
+	"""
 	filenames = []
 	try:
 		for uploaded_file in uploaded_files:
-			with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp:
+			with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp:
 				uploaded_file.save(temp.name)
 				filenames.append(temp.name)
 
-		temp_path = concat_mp3_files(filenames, "final.mp3")
-
-		model = whisper.load_model("large-v3")
-		result = model.transcribe(temp_path, language='sl')
-		transcription = result['text']
-
-		text = to_medical_format(transcription, client)
-
-		save_anamnesis(
-			database,
-			title,
-			text,
-			pid,
-			did,
-			enc_key
-		)
-		return jsonify({"message": transcription, "status": "success"}), 200
+		temp_path = concat_wav_files(filenames, "final.wav")
+		temp_key = os.urandom(32)
+		temp_enc_path = "audio.bin"
+		encrypt_file(temp_path, temp_enc_path, temp_key)
+		key = hexlify(temp_key).decode('utf-8')
+		data = {
+			"decryption_key": key
+		}
+		try:
+			with open(temp_enc_path, 'rb') as f:
+				files = {
+					"file": ("audio.bin", f, "application/octet-stream")
+				}
+				#response = requests.post('http://localhost:4000/upload', files=files, data=data)
+				#return jsonify({"status": response.status_code, "message": response.text}), 200
+				return jsonify({"status": "success"}), 200
+		except Exception as e:
+			return jsonify({"Error": str(e)}), 500
 
 	except Exception as e:
 		return jsonify({"error": str(e)}), 500
-
-	finally:
-		if os.path.exists("final.mp3"):
-			os.remove("final.mp3")
-		for file in filenames:
-			if os.path.exists(file):
-				os.remove(file)  # TODO modify
 
 
 if __name__ == '__main__':

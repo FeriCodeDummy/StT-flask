@@ -46,7 +46,6 @@ def decrypt_text(encrypted_b64: str, dek: bytes) -> str:
 	decoded = base64.b64decode(encrypted_b64)
 	nonce = decoded[:12]
 	ciphertext = decoded[12:]
-	tag = decoded[-16:]
 
 	aesgcm = AESGCM(dek)
 	plaintext = aesgcm.decrypt(nonce, ciphertext, None)
@@ -90,3 +89,31 @@ def decrypt_dek_with_rsa(encrypted_dek_b64: str, private_key_pem: str) -> bytes:
 	)
 
 	return decrypted_dek
+
+
+def encrypt_file(input_path: str, output_path: str, dek: bytes):
+
+	with open(input_path, "rb") as f:
+		data = f.read()
+
+	nonce = os.urandom(12)
+	aesgcm = AESGCM(dek)
+	ciphertext = aesgcm.encrypt(nonce, data, None)
+
+	with open(output_path, "wb") as f:
+		f.write(nonce + ciphertext)
+
+
+def decrypt_file(input_path: str, output_path: str, dek: bytes):
+
+	with open(input_path, "rb") as f:
+		blob = f.read()
+
+	nonce = blob[:12]
+	ciphertext = blob[12:]
+
+	aesgcm = AESGCM(dek)
+	plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+
+	with open(output_path, "wb") as f:
+		f.write(plaintext)

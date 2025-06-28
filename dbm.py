@@ -60,24 +60,20 @@ def save_anamnesis(db, title, text, pid, did, enc_key):
 
 
 def fetch_pid(db, hashed):
-	sql = "SELECT idPatient, fk_doctor, fk_hospital, enc_key FROM Patient"
+	sql = "SELECT idPatient, enc_key from Patient;"
 	cursor = db.cursor()
 	cursor.execute(sql)
 	res = cursor.fetchall()
 	pid = -1
-	hid = -1
-	did = -1
 	enc = ''
 	for item in res:
 		h = sha256(str(item[0]).encode('utf-8')).hexdigest()
 		if hashed == h:
 			pid = item[0]
-			did = item[1]
-			hid = item[2]
-			enc = item[3]
+			enc = item[1]
 			break
 
-	return [pid, did, hid, enc]
+	return [pid, enc]
 
 
 def fetch_doctor_patients(db, email):
