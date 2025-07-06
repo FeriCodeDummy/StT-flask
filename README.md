@@ -17,9 +17,13 @@ Omogoča:
 
 # Namestitev
 
-Za prenos mape in namestitev prvič naredite
+Za prenos mape in namestitev prvič naredite z
 ```
-github clone https://github.com/FeriCodeDummy/StT-flask
+git clone https://github.com/FeriCodeDummy/StT-flask
+
+cd StT-flask
+
+pip install -r requirements.txt
 ```
 
 Za zagon zaledja uporabite
@@ -31,13 +35,7 @@ python server.py
 # Struktura
 
 ```
--StT-queue          
---uploads           
----...              - začasni podatki
---gdpr_auth.py      - šifriranje ene del anamneze
---mq-server         - podsistem za čakalno vrsto
---queue-stt         - pošiljanje transkripcij po vrsti
 -dbm.py             - seznam poizvedb za podatkovno bazo
--gdpr_auth.py       - šifriranje anamnez
+-gdpr_auth.py       - varnost
 -server.py          - komunikacija med zaledjem, uporabniki in pb
 ```
