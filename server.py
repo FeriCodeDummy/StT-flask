@@ -11,8 +11,10 @@ from flask import Flask, request, Response, jsonify
 from flask_cors import CORS
 from openai import OpenAI
 from binascii import hexlify
-from dbm import fetch_doctor_patients, confirm_anamnesis, fetch_pid, fetch_anamnesis_reencrypted, update_anamnesis_data
-from gdpr_auth import encrypt_text, decrypt_text, encrypt_dek_with_rsa, decrypt_dek, encrypt_file
+from dbm import fetch_doctor_patients, confirm_anamnesis, fetch_pid, fetch_anamnesis_reencrypted, update_anamnesis_data, \
+	fetch_anamnesis_reencrypted_doctor
+from gdpr_auth import encrypt_text, decrypt_text, encrypt_dek_with_rsa, decrypt_dek, encrypt_file, decrypt_dek_with_rsa, \
+	decrypt_file
 from utils import concat_wav_files
 
 load_dotenv()
@@ -85,14 +87,28 @@ def accept_anamnesis():
 @app.route('/fetch-anamnesis', methods=['POST'])
 @log_access(action_type="READ", target_table='Anamnesis')
 def fetch_anamnesis_request():
-	# TODO Conditionally, if doctor, fetch his, if admin ... Fetch all? Or one, assigned with some function?
-	# Does it break gdpr?
+	data = request.get_json()
+	public_key_pem = data['public_key']
+	doctor_email = data['doctor_email']
+	aes_key = os.urandom(32)
+	encrypted_key = encrypt_dek_with_rsa(aes_key, public_key_pem)
+
+	data = fetch_anamnesis_reencrypted_doctor(database, aes_key, doctor_email)
+
+	return jsonify({
+		'encrypted_key': encrypted_key,
+		'anamnesis': data
+	}), 200
+
+@app.route('/fetch-anamnesis-admin', methods=['POST'])
+@log_access(action_type="READ", target_table='Anamnesis')
+def fetch_anamnesis_request_admin():
 	data = request.get_json()
 	public_key_pem = data['public_key']
 	aes_key = os.urandom(32)
 	encrypted_key = encrypt_dek_with_rsa(aes_key, public_key_pem)
 
-	data = fetch_anamnesis_reencrypted(database, aes_key)
+	data = fetch_anamnesis_reencrypted(database, aes_key, )
 
 	return jsonify({
 		'encrypted_key': encrypted_key,
@@ -106,7 +122,8 @@ def update_anamnesis_data_():
 	data = request.get_json()
 	enc_key = data.get("encrypted_key")
 	enc_text = data.get("encrypted_text")
-	pid = data.get("patient_id")
+	enc_diagnosis = data.get("encrypted_diagnosis")
+	mkb_10 = data.get("mkb10")
 	aid = data.get("anamnesis_id")
 
 	with open("private_key.pem", "rb") as f:
@@ -125,16 +142,13 @@ def update_anamnesis_data_():
 	aes_key = base64.b64decode(aes_key)
 
 	updated_text = decrypt_text(enc_text, aes_key)
-
-	pid, did, hid, enc_key = fetch_pid(database, pid)
-	if pid == -1:
-		return jsonify({"error": "Patient id is invalid"}), 400
-
+	updated_diagnosis = decrypt_text(enc_diagnosis, aes_key)
 	key_ = decrypt_dek(enc_key)
 	text = encrypt_text(updated_text, key_)
+	diagnosis = encrypt_text(updated_diagnosis, key_)
 	del key_
 
-	update_anamnesis_data(database, text, aid)
+	update_anamnesis_data(database, text, diagnosis, mkb_10, aid)
 
 	return jsonify({"status": "Success."}), 200
 
@@ -147,8 +161,7 @@ def fetch_patients():
 		did = data.get("doctor_email")
 	except:
 		return jsonify({"error": "Missing required field doctor_id"}), 400
-	print("It did: ")
-	print(did)
+
 	res = fetch_doctor_patients(database, did)
 	patients = []
 
@@ -156,7 +169,9 @@ def fetch_patients():
 		patients.append({
 			"patient_id": item[2],
 			"name": item[0],
-			"surname": item[1]
+			"surname": item[1],
+			"medical_card_id": item[3],
+			"birtday": item[4]
 		})
 
 	return jsonify({"patients": patients}), 200
@@ -165,8 +180,12 @@ def fetch_patients():
 @app.route("/save-transcribed-anamnesis", methods=["POST"])
 @log_access(action_type="WRITE", target_table='Anamnesis')
 def transcribed_anamnesis():
-	if 'transcription' not in request.form:
-		return jsonify({"error": "Missing anamnesis transcription"}), 400
+	data = request.get_json()
+	pid = data.get("patient_id")
+	did = data.get("doctor_id")
+	title = data.get("title")
+
+	#	return jsonify({"error": "Missing anamnesis transcription"}), 400
 	print(request.form['transcription'])
 	return jsonify({"message": request.form['transcription']}), 200
 
@@ -174,7 +193,6 @@ def transcribed_anamnesis():
 @app.route("/multiple-recordings", methods=["POST"])
 @log_access(action_type="READ", target_table='Patient')
 def multiple_recordings():
-
 
 	if 'audio_files' not in request.files:
 		print(request.files)
@@ -184,17 +202,22 @@ def multiple_recordings():
 
 	if len(uploaded_files) == 0:
 		return jsonify({"error": "No audio files"}), 400
-	"""
-	pid, enc_key = fetch_pid(database, hashed_id)
-	if pid == -1:
-		return jsonify({"error": "Patient id is invalid"}), 400
-	"""
+
+	data = request.get_json()
+	if 'encrypted_key' not in data:
+		return jsonify({"message": "Missing decryption key"}), 400
+	key = data['encrypted_key']
+	with open('_/private_key.pem', 'r') as pkey:
+		private = pkey.read()
+	dec_key = decrypt_dek_with_rsa(key, private)
+
 	filenames = []
 	try:
 		for uploaded_file in uploaded_files:
-			with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp:
+			with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as temp:
 				uploaded_file.save(temp.name)
-				filenames.append(temp.name)
+				decrypt_file(temp.name, temp.name.replace('bin', 'wav'), dec_key)
+				filenames.append(temp.name.replace('bin', 'wav'))
 
 		temp_path = concat_wav_files(filenames, "final.wav")
 		temp_key = os.urandom(32)
@@ -210,8 +233,11 @@ def multiple_recordings():
 					"file": ("audio.bin", f, "application/octet-stream")
 				}
 				#response = requests.post('http://localhost:4000/upload', files=files, data=data)
-				#return jsonify({"status": response.status_code, "message": response.text}), 200
-				return jsonify({"status": "success"}), 200
+				for f in filenames:
+					os.remove(f)
+#				return jsonify({"status": response.status_code, "message": response.text}), 200
+				return jsonify({"status": 200, "message": "nothing crashed"}), 200
+
 		except Exception as e:
 			return jsonify({"Error": str(e)}), 500
 
