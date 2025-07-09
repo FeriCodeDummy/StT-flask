@@ -39,40 +39,51 @@ def fetch_anamnesis_reencrypted(db, key_):
 
 
 def fetch_anamnesis_reencrypted_doctor(db, key_, email):
-	sql = """SELECT p.name, p.surname, title, content, d.name, d.surname, idAnamnesis, p.enc_key, p.idPatient, diagnosis, mkb_10, status, created_at FROM Anamnesis
-	JOIN Patient AS p on p.idPatient = Anamnesis.fk_patient
-	JOIN patient_has_doctor AS phd ON phd.fk_patient = p.idPatient
-	JOIN Doctor AS d on d.idDoctor = phd.fk_doctor
-	WHERE d.email = %s;
-	"""
+    sql = """SELECT p.name, p.surname, title, content, d.name, d.surname, idAnamnesis, p.enc_key, p.idPatient, diagnosis, mkb_10, status, created_at, Country.country, zipcode, City.city, address_1, specialty, medical_card_id, birthday FROM Anamnesis
+    JOIN Patient AS p on p.idPatient = Anamnesis.fk_patient
+    JOIN patient_has_doctor AS phd ON phd.fk_patient = p.idPatient
+    JOIN Doctor AS d on d.idDoctor = phd.fk_doctor
+    JOIN Address on idAddress = fk_address
+    JOIN Country on idCountry = fk_country
+    JOIN City on idCity = fk_city
+    JOIN Specialty on fk_specialty = idSpecialty
+    WHERE d.email = %s;
+    """
 
-	cursor = db.cursor()
-	cursor.execute(sql, (email,))
-	res = cursor.fetchall()
-	decrypted = []
-	for item in res:
-		dec = decrypt_dek(item[7])
-		text = decrypt_text(item[3], dec)
-		renc = encrypt_text(text, key_)
-		diag = decrypt_text(item[9], dec)
-		diag_r = encrypt_text(diag, key_)
-		js = {
-			"p_name": item[0],
-			"p_surname": item[1],
-			"title": item[2],
-			"contents": renc,
-			"d_name": item[4],
-			"d_surname": item[5],
-			"id_anamnesis": item[6],
-			"id_patient": item[8],
-			"diagnosis": diag_r,
-			"mkb10": item[10],
-			"status": item[11],
-			"date": item[12]
-		}
-		decrypted.append(js)
-	return decrypted
+    cursor = db.cursor()
+    cursor.execute(sql, (email,))
+    res = cursor.fetchall()
+    decrypted = []
+    for item in res:
+        dec = decrypt_dek(item[7])
+        text = decrypt_text(item[3], dec)
+        renc = encrypt_text(text, key_)
+        diag = decrypt_text(item[9], dec)
+        diag_r = encrypt_text(diag, key_)
+        js = {
+            "p_name": item[0],
+            "p_surname": item[1],
+            "title": item[2],
+            "contents": renc,
+            "d_name": item[4],
+            "d_surname": item[5],
+            "id_anamnesis": item[6],
+            "id_patient": item[8],
+            "diagnosis": diag_r,
+            "mkb10": item[10],
+            "status": item[11],
+            "date": item[12],
+            "country": item[13],
+            "zipcode": item[14],
+            'city': item[15],
+            "address": item[16],
+            "specialty": item[17],
+            "kzz": item[18],
+            "birthday": item[19]
+        }
 
+        decrypted.append(js)
+    return decrypted
 
 
 def confirm_anamnesis(db, aid):
