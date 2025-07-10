@@ -3,5 +3,9 @@ vosk-model-en-us-0.22/
 __pycache__/
 private_key.pem
 _/
+.idea/
+StT-queue/
 *.pem
 redacted.txt
+*.bin
+*.wav
