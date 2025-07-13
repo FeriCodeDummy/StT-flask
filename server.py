@@ -16,6 +16,7 @@ from dbm import fetch_doctor_patients, confirm_anamnesis, fetch_pid, fetch_anamn
 from gdpr_auth import encrypt_text, decrypt_text, encrypt_dek_with_rsa, decrypt_dek, encrypt_file, decrypt_dek_with_rsa, \
 	decrypt_file
 from utils import concat_wav_files, transcribe, to_medical_format
+from auth import requires_auth
 
 load_dotenv()
 get = os.getenv
@@ -76,6 +77,7 @@ def handle_preflight():
 
 @app.route("/accept-anamnesis", methods=["POST"])
 @log_access(action_type="UPDATE", target_table='Anamnesis')
+@requires_auth
 def accept_anamnesis():
 	# TODO Add verification?
 	data = request.get_json()
@@ -86,6 +88,7 @@ def accept_anamnesis():
 
 @app.route('/fetch-anamnesis', methods=['POST'])
 @log_access(action_type="READ", target_table='Anamnesis')
+@requires_auth
 def fetch_anamnesis_request():
 	data = request.get_json()
 	public_key_pem = data['public_key']
@@ -102,6 +105,7 @@ def fetch_anamnesis_request():
 
 @app.route('/fetch-anamnesis-admin', methods=['POST'])
 @log_access(action_type="READ", target_table='Anamnesis')
+@requires_auth
 def fetch_anamnesis_request_admin():
 	data = request.get_json()
 	public_key_pem = data['public_key']
@@ -118,6 +122,7 @@ def fetch_anamnesis_request_admin():
 
 @app.route('/multiple-recordings', methods=["POST"])
 @log_access(action_type="READ", target_table='Patient')
+@requires_auth
 def multiple_recordings():
 
 	if 'audio_files' not in request.files:
@@ -165,6 +170,7 @@ def multiple_recordings():
 
 @app.route("/update-anamnesis", methods=["POST"])
 @log_access(action_type="UPDATE", target_table='Anamnesis')
+@requires_auth
 def update_anamnesis_data_():
 	data = request.get_json()
 	enc_key = data.get("encrypted_key")
@@ -200,6 +206,7 @@ def update_anamnesis_data_():
 
 @app.route('/fetch-patients', methods=["POST"])
 @log_access(action_type="READ", target_table='Patient')
+@requires_auth
 def fetch_patients():
 	data = request.get_json()
 	try:
