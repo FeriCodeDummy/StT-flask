@@ -89,26 +89,43 @@ def fetch_anamnesis_reencrypted_doctor(db, key_, email):
 def confirm_anamnesis(db, aid):
 	sql = "UPDATE Anamnesis SET status = 'PENDING', processed_at = NOW() WHERE idAnamesis = %s;"
 	cursor = db.cursor()
-	cursor.execute(sql, (aid))
+	cursor.execute(sql, (aid,))
 	db.commit()
 
 
-def update_anamnesis_data(db, text, diagnosis, mkb_10, aid):
-	sql = "UPDATE Anamnesis SET contents = %s, mkb_10 = %s, status='CONFIRMED', diagnosis = %s, confirmed_at = NOW()  WHERE idAnamnesis = %s;"
+def update_anamnesis_data(db, text, diagnosis, mkb_10, aid, pid):
+	sq = "SELECT enc_key from Patient where idPatient = %s;"
+	cursor = db.cursor()
+	cursor.execute(sq, (pid,))
+	enc_key = cursor.fetchall()[0][0]
+	key = decrypt_dek(enc_key)
+	text = encrypt_text(text, key)
+	diagnosis = encrypt_text(diagnosis, key)
+
+	sql = "UPDATE Anamnesis SET content = %s, mkb_10 = %s, status='CONFIRMED', diagnosis = %s, confirmed_at = NOW()  WHERE idAnamnesis = %s;"
 	cursor = db.cursor()
 	cursor.execute(sql, (text, mkb_10, diagnosis, aid))
 	db.commit()
 
 
-def save_anamnesis(db, title, text, pid, did, enc_key):
-	# TODO Encrypt title of anamnesis too
+def save_anamnesis(db, title, text, pid, did_):
+	sql = "SELECT idDoctor from Doctor where email = %s"
+	cursor = db.cursor()
+	cursor.execute(sql, (did_,))
+	did = cursor.fetchall()[0][0]
+	sql = "SELECT enc_key from Patient where idPatient = %s"
+	cursor = db.cursor()
+	cursor.execute(sql, (pid,))
+	enc_key = cursor.fetchall()[0][0]
+
 	enc_key = decrypt_dek(enc_key)
 	contents = encrypt_text(text, enc_key)
+	diagnosis = encrypt_text("", enc_key)
 
-	sql = """INSERT INTO Anamnesis (`idAnamnesis`, `content`, `title`, `fk_patient`, `fk_doctor`)
-		VALUES(NULL, %s, %s, %s, %s);"""
+	sql = """INSERT INTO Anamnesis (`idAnamnesis`, `content`, `title`, `fk_patient`, `fk_doctor`, `diagnosis`, `created_at`, `mkb_10`)
+		VALUES(NULL, %s, %s, %s, %s, %s, NOW(), 'F00.00');"""
 	cursor = db.cursor()
-	cursor.execute(sql, (contents, title, pid, did))
+	cursor.execute(sql, (contents, title, pid, did, diagnosis))
 	db.commit()
 	return cursor.lastrowid
 
